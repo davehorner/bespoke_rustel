@@ -42,8 +42,10 @@ def open_mapping(name):
             raise OSError(ctypes.get_errno(), "Cannot open lane shared memory")
         try:
             status = os.fstat(fd)
-            if status.st_size != SIZE or status.st_uid != os.geteuid():
-                raise ValueError("Unexpected shared-memory owner or size")
+            # Darwin reports the page-rounded allocation size. The protocol
+            # needs SIZE bytes, not an allocation whose size is exactly SIZE.
+            if status.st_size < SIZE or status.st_uid != os.geteuid():
+                raise ValueError(f"Unexpected shared-memory owner or insufficient capacity: {status.st_size} bytes")
             with mmap.mmap(fd, SIZE, flags=mmap.MAP_SHARED, prot=mmap.PROT_READ | mmap.PROT_WRITE) as memory:
                 yield memory
         finally:

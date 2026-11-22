@@ -95,12 +95,15 @@ class SetupTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform in ("linux", "darwin"), "POSIX process identity")
 class ProcessTests(unittest.TestCase):
     def test_reused_pid_identity_does_not_authorize_stop(self):
-        with subprocess.Popen([sys.executable, "-c", "import time;time.sleep(10)"]) as process:
+        with subprocess.Popen([sys.executable, "-c", "import time;print('ready',flush=True);time.sleep(10)"],
+                              stdout=subprocess.PIPE, text=True) as process:
             try:
+                self.assertEqual(process.stdout.readline().strip(), "ready")
                 identity = start.wait_for(lambda: start.process_identity(process.pid), 2, "process not ready")
                 record = {"pid": process.pid, "identity": dict(identity, started="different start")}
                 self.assertFalse(start.live_record(record))
                 record["identity"] = identity
+                self.assertEqual(start.process_identity(process.pid), identity)
                 self.assertTrue(start.live_record(record))
             finally:
                 process.terminate()

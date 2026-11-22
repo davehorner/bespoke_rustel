@@ -31,16 +31,18 @@ class NativeSharedTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temporary.cleanup()
 
-    def mapping(self, pid):
+    def mapping(self, pid, size=SIZE, initialize=True):
         library = posix_lib()
         name = f"/rla-{pid:x}-{time.time_ns() & ((1<<64)-1):x}"
         fd = library.shm_open(name.encode(), os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
         self.assertGreaterEqual(fd, 0)
         try:
-            os.ftruncate(fd, SIZE)
+            os.ftruncate(fd, size)
         finally:
             os.close(fd)
         self.addCleanup(lambda: library.shm_unlink(name.encode()))
+        if not initialize:
+            return name
         with open_mapping(name) as memory:
             struct.pack_into("<IIIII", memory, 0, 0x524C4131, 1, 48000, 15, 16384)
             struct.pack_into("<QQ", memory, 24, 4096, 1)
@@ -51,6 +53,23 @@ class NativeSharedTests(unittest.TestCase):
                         offset = 4096 + ((slot*16384 + frame)*2+ch)*8
                         struct.pack_into("<Q", memory, offset, (frame<<32)|bits)
         return name
+
+    def test_readers_accept_page_padding(self):
+        # Reproduce Darwin's larger reported allocation on Linux as well.
+        name = self.mapping(os.getpid(), size=SIZE + 16384)
+        with open_mapping(name) as memory:
+            self.assertEqual(len(memory), SIZE)
+        result = subprocess.run([str(self.reader), name], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
+    def test_readers_reject_undersized_mapping(self):
+        # One byte short can round back up on macOS; stay below SIZE by a page.
+        name = self.mapping(os.getpid(), size=SIZE - 16384, initialize=False)
+        with self.assertRaises(ValueError):
+            with open_mapping(name):
+                pass
+        result = subprocess.run([str(self.reader), name], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
 
     def test_cpp_reader_decodes_stereo_tags_and_renews_lease(self):
         name = self.mapping(os.getpid())

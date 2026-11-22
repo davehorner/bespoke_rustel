@@ -280,10 +280,10 @@ index 0000000000000000000000000000000000000000..4bb5bd636347658d3f3cd27d6ea52d7c
 +};
 diff --git a/Source/RustelAudioShared.h b/Source/RustelAudioShared.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..3165ce60a6892e488c0fb6f6ebc978a5a96a1029
+index 0000000000000000000000000000000000000000..0ee089c27d58e7f6c20f7bc96f78c7f000d3720d
 --- /dev/null
 +++ b/Source/RustelAudioShared.h
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,126 @@
 +#pragma once
 +// Standalone IPC reader used by the native node and cross-platform contract tests.
 +#include <cstdint>
@@ -345,7 +345,9 @@ index 0000000000000000000000000000000000000000..3165ce60a6892e488c0fb6f6ebc978a5
 +      if(fd<0) return false;
 +      fcntl(fd,F_SETFD,FD_CLOEXEC);
 +      struct stat status{};
-+      if(fstat(fd,&status)!=0 || status.st_size!=static_cast<off_t>(Bytes) || status.st_uid!=geteuid()) {close(fd);return false;}
++      // Darwin rounds shm allocations to a VM page. Map only the protocol's
++      // required bytes; reject undersized objects, not harmless trailing padding.
++      if(fstat(fd,&status)!=0 || status.st_size<static_cast<off_t>(Bytes) || status.st_uid!=geteuid()) {close(fd);return false;}
 +      void* base=mmap(nullptr,Bytes,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
 +      close(fd);
 +      if(base==MAP_FAILED) return false;

@@ -59,7 +59,9 @@ public:
       if(fd<0) return false;
       fcntl(fd,F_SETFD,FD_CLOEXEC);
       struct stat status{};
-      if(fstat(fd,&status)!=0 || status.st_size!=static_cast<off_t>(Bytes) || status.st_uid!=geteuid()) {close(fd);return false;}
+      // Darwin rounds shm allocations to a VM page. Map only the protocol's
+      // required bytes; reject undersized objects, not harmless trailing padding.
+      if(fstat(fd,&status)!=0 || status.st_size<static_cast<off_t>(Bytes) || status.st_uid!=geteuid()) {close(fd);return false;}
       void* base=mmap(nullptr,Bytes,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
       close(fd);
       if(base==MAP_FAILED) return false;

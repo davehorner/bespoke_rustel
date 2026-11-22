@@ -158,11 +158,13 @@ class Launcher:
                                            env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
                                            start_new_session=True)
             self.children.append(process)
-            identity = wait_for(lambda: process_identity(process.pid), 2, f"Cannot identify new {role} process")
-            record = {"pid": process.pid, "identity": identity, "owned": True}
             time.sleep(0.3)
             if process.poll() is not None:
                 raise RuntimeError(f"{role} exited ({process.returncode}); see {self.logs}/{role}-error.log")
+            # Capture after the startup check, not during the child/interpreter's
+            # early exec transition (notably macOS framework Python launchers).
+            identity = wait_for(lambda: process_identity(process.pid), 2, f"Cannot identify new {role} process")
+            record = {"pid": process.pid, "identity": identity, "owned": True}
             print(f"Started {role} (PID {process.pid})")
         record["role"] = role
         self.state["processes"] = [r for r in self.state["processes"] if r["role"] != role] + [record]

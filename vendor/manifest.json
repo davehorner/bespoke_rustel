@@ -25,7 +25,7 @@
         },
         {
           "path": "Source/RustelAudioShared.h",
-          "sha256": "7f3a023603bd2e092a87b42a9a4d42cf3cfa3615c51000e21e83d4107216c840"
+          "sha256": "d00b61e8fac44da55001852234cad8640299662729a34dcd38c68871fe02fb40"
         },
         {
           "path": "Source/RustelLink.h",
@@ -56,8 +56,8 @@
           "sha256": "6150d12b7cfa502fb2ee3ba082cd9617f4ba522cb8f64eda42cbbf956f45554e"
         }
       ],
-      "patch_sha256": "8bfedd9920d266ddb22f83d70e85efeac80b1400728c782b6f487b57c5b65f43",
-      "result_tree": "fc60fb965205fe859c36cb4064a5382bf8e64c15"
+      "patch_sha256": "dcffb7bf777da106e7fb8d2632ba8b1533db72297873f561187a3f687955b000",
+      "result_tree": "5c2186679786442feefc88eab91a4b7182193bee"
     },
     {
       "name": "rustel",
