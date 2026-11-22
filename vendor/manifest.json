@@ -33,11 +33,11 @@
         },
         {
           "path": "Source/RustelPattern.cpp",
-          "sha256": "d61ed6fc2f28aa44af92da7514945316cf5a5f97d4639fcf3ce597f3d1139728"
+          "sha256": "087aff59b8ea35b9678b8ce60c4b43eedea97fe032d6d6c8d836c75bf4f19dcd"
         },
         {
           "path": "Source/RustelPattern.h",
-          "sha256": "abcc5d3d298394b65528cb165d42fcd4386f5de67149609d05ac4d44ef60ad1c"
+          "sha256": "4827c5a482be22a15ca989b77552d79f29d86e2b9257103852ea299403653282"
         },
         {
           "path": "Source/RustelView.cpp",
@@ -56,8 +56,8 @@
           "sha256": "6150d12b7cfa502fb2ee3ba082cd9617f4ba522cb8f64eda42cbbf956f45554e"
         }
       ],
-      "patch_sha256": "dcffb7bf777da106e7fb8d2632ba8b1533db72297873f561187a3f687955b000",
-      "result_tree": "5c2186679786442feefc88eab91a4b7182193bee"
+      "patch_sha256": "bd033c0e070347958b789a97aaa75042abfdd71d00ee9c702f4028f4c3165666",
+      "result_tree": "80e6bd6c36ab9dc4573dfc98bbe4259d615de0aa"
     },
     {
       "name": "rustel",

@@ -25,6 +25,8 @@ Run it again without duplicating those apps. It does not close existing
 patches or replace an existing Rustel session's score.
 For demo purposes, the launcher disables the welcome overlay in its dedicated
 Bespoke preferences file. Normal Bespoke preferences are unchanged.
+The demo patch opens with `rustel source` already connected to `transpose`;
+select a live lane in the source node to use it.
 
 Options: `-Status` checks connections; Nightshade is enabled by default (`-Web`
 is still accepted). `-NoWeb` disables it, and `-NoOpen` serves it and prints its

@@ -2,6 +2,7 @@
 #include "OpenFrameworksPort.h"
 #include "FileStream.h"
 #include "RustelLink.h"
+#include "ModularSynth.h"
 #include <deque>
 #include <mutex>
 
@@ -161,6 +162,18 @@ void RustelPattern::DropdownUpdated(DropdownList*, int, double)
    }
    mSelectedKey = mSelected >= 0 && mSelected < int(mKeys.size()) ? mKeys[mSelected] : "";
    mLastCommand.clear();
+}
+
+void RustelPattern::LoadLayout(const ofxJSONElement& moduleInfo)
+{
+   mModuleSaveData.LoadString("target", moduleInfo);
+   SetUpFromSaveData();
+}
+
+void RustelPattern::SetUpFromSaveData()
+{
+   // Demo layouts can connect the special pattern cable to a transpose node.
+   mPatternOutput->SetTarget(TheSynth->FindModule(mModuleSaveData.GetString("target")));
 }
 
 RustelPattern::~RustelPattern()

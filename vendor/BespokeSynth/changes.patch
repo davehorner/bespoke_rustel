@@ -430,14 +430,15 @@ index 0000000000000000000000000000000000000000..47a223e00b492c5c0d4997897579b94e
 +}
 diff --git a/Source/RustelPattern.cpp b/Source/RustelPattern.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..a70ead7797521810368004dc91f6cbc36c223c38
+index 0000000000000000000000000000000000000000..289fb1122fb913376eb54ac59b7925e1445876a0
 --- /dev/null
 +++ b/Source/RustelPattern.cpp
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,276 @@
 +#include "RustelPattern.h"
 +#include "OpenFrameworksPort.h"
 +#include "FileStream.h"
 +#include "RustelLink.h"
++#include "ModularSynth.h"
 +#include <deque>
 +#include <mutex>
 +
@@ -599,6 +600,18 @@ index 0000000000000000000000000000000000000000..a70ead7797521810368004dc91f6cbc3
 +   mLastCommand.clear();
 +}
 +
++void RustelPattern::LoadLayout(const ofxJSONElement& moduleInfo)
++{
++   mModuleSaveData.LoadString("target", moduleInfo);
++   SetUpFromSaveData();
++}
++
++void RustelPattern::SetUpFromSaveData()
++{
++   // Demo layouts can connect the special pattern cable to a transpose node.
++   mPatternOutput->SetTarget(TheSynth->FindModule(mModuleSaveData.GetString("target")));
++}
++
 +RustelPattern::~RustelPattern()
 +{
 +   if (auto* object = mLastBinding.getDynamicObject())
@@ -699,10 +712,10 @@ index 0000000000000000000000000000000000000000..a70ead7797521810368004dc91f6cbc3
 +}
 diff --git a/Source/RustelPattern.h b/Source/RustelPattern.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..60071f5c82365f61ab1c012f895a9681f3af4b35
+index 0000000000000000000000000000000000000000..59b3baf0141acf7e115918a934461d8251f4d43b
 --- /dev/null
 +++ b/Source/RustelPattern.h
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,50 @@
 +#pragma once
 +#include <juce_core/juce_core.h>
 +
@@ -734,6 +747,8 @@ index 0000000000000000000000000000000000000000..60071f5c82365f61ab1c012f895a9681
 +   void CreateUIControls() override;
 +   void Poll() override;
 +   void DropdownUpdated(DropdownList*, int, double) override;
++   void LoadLayout(const ofxJSONElement& moduleInfo) override;
++   void SetUpFromSaveData() override;
 +   void SaveState(FileStreamOut& out) override;
 +   void LoadState(FileStreamIn& in, int rev) override;
 +   int GetModuleSaveStateRev() const override { return 0; }
