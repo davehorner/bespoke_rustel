@@ -1,5 +1,6 @@
 """Headless native Rust-writer/C++-reader check; no audio SDKs needed."""
 from pathlib import Path
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,23 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "music-link"))
 from native_ipc import open_mapping, unlink_stopped_mapping, windows_mapping_exists
+
+
+def msvc_generator():
+    locator = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    installations = json.loads(subprocess.check_output(
+        [str(locator), "-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+         "-format", "json", "-utf8"], encoding="utf-8-sig"))
+    if not installations:
+        raise RuntimeError("Install Visual Studio C++ tools and the Windows SDK for the native IPC check")
+    installation = installations[0]
+    major = installation["installationVersion"].split(".")[0]
+    capabilities = json.loads(subprocess.check_output(["cmake", "-E", "capabilities"], encoding="utf-8"))
+    generator = next((g["name"] for g in capabilities["generators"]
+                      if g["name"].startswith(f"Visual Studio {major} ")), None)
+    if not generator:
+        raise RuntimeError(f"Update CMake to support installed Visual Studio {major}")
+    return ["-G", generator, "-A", "x64", "-DCMAKE_GENERATOR_INSTANCE=" + installation["installationPath"]]
 
 
 def main():
@@ -22,7 +40,7 @@ def main():
             # Select MSVC explicitly: a globally configured Ninja/Clang may not
             # have the Windows SDK environment supplied by a VS generator.
             subprocess.run(["cmake", "-S", str(ROOT / "music-link/tests/native-reader"), "-B", str(build),
-                            "-G", "Visual Studio 17 2022", "-A", "x64"], check=True)
+                            *msvc_generator()], check=True)
             subprocess.run(["cmake", "--build", str(build), "--config", "Release"], check=True)
             reader = build / "Release/lane-ipc-reader.exe"
         else:

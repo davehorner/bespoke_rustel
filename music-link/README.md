@@ -443,7 +443,8 @@ python3 music-link/tests/check_native_ipc.py
 This compiles the shipping vendored writer/reader with deterministic sample
 blocks and checks tagged stereo reads, lease mute/recovery and mapping cleanup
 after normal exit or a hard crash. It needs stable Rust, a C++17 compiler and
-Python 3, but no audio SDKs or device. Windows uses CMake with Visual Studio 2022
-and the Windows SDK; run it with `python` rather than `python3` if needed. The
+Python 3, but no audio SDKs or device. Windows uses CMake with the Visual Studio C++ tools
+and the Windows SDK; it detects the installed Visual Studio version. Run it with
+`python` rather than `python3` if needed. The
 portable CI matrix runs the IPC check on all three operating systems. The full application probe is
 `python3 music-link/check-lane-audio.py --bespoke` after native builds.
