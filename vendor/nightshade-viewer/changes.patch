@@ -352,10 +352,10 @@ index 2f1d0b2b5a26d629bcf1218f3da14257368607eb..cebd03a2f552cd3278054e681ce863fc
  name = "tungstenite"
  version = "0.29.0"
 diff --git a/Cargo.toml b/Cargo.toml
-index 566968c7141d45d87572954a16f222631c0226ee..5871c98ed2779d8f9fe4afd915a34293444de556 100644
+index 566968c7141d45d87572954a16f222631c0226ee..a9a6aab6aed078dbbb1ebea5f9dcccc6a2a685ae 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -8,21 +8,27 @@ version = "0.1.0"
+@@ -8,21 +8,28 @@ version = "0.1.0"
  edition = "2024"
  
  [dependencies]
@@ -380,11 +380,12 @@ index 566968c7141d45d87572954a16f222631c0226ee..5871c98ed2779d8f9fe4afd915a34293
      "HtmlElement",
      "HtmlCanvasElement",
 +    "CanvasRenderingContext2d",
++    "TextMetrics",
 +    "ErrorEvent",
      "HtmlInputElement",
      "OffscreenCanvas",
      "CssStyleDeclaration",
-@@ -54,7 +60,7 @@ web-sys = { version = "0.3", features = [
+@@ -54,7 +61,7 @@ web-sys = { version = "0.3", features = [
  [features]
  # The external agent relay (page <-> MCP bridge websocket). Off by default so a
  # deployed build never opens a localhost socket; enable for agent development.
@@ -923,10 +924,10 @@ index 0000000000000000000000000000000000000000..019348c9d98f60ffec85b60b41aaf7ba
 +}
 diff --git a/src/music_canvas.rs b/src/music_canvas.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..fbe4c46b5bae2271d7664c63b94c2f86bd4017c0
+index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2e6f85886
 --- /dev/null
 +++ b/src/music_canvas.rs
-@@ -0,0 +1,653 @@
+@@ -0,0 +1,663 @@
 +//! Flat views stay on the page thread so a stopped GPU worker cannot stop them.
 +use crate::state::ViewerState;
 +use leptos::{html, prelude::*};
@@ -1273,8 +1274,18 @@ index 0000000000000000000000000000000000000000..fbe4c46b5bae2271d7664c63b94c2f86
 +                        c.set_global_alpha(if active { 1.0 } else { 0.55 });
 +                    }
 +                }
-+                let height = if event.part.is_empty() { 8.0 } else { 14.0 };
++                let height = 14.0;
 +                c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
++                let glyph = music_link::note_glyph(event.pitch);
++                c.save();
++                c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
++                c.set_font("11px monospace");
++                let text_width = c.measure_text(&glyph).map(|m| m.width()).unwrap_or(1.0).max(1.0);
++                let size = (11.0 * (length-2.0).max(1.0) / text_width).min(11.0);
++                c.set_font(&format!("{size}px monospace"));
++                c.set_text_align("center");
++                label(c, &glyph, x_at(event.cycle) + length*0.5, y + size*0.35, "#080e1b");
++                c.restore();
 +                if !event.part.is_empty() {
 +                    c.save();
 +                    label(c, &event.part, x_at(event.cycle) + 2.0, y - 9.0, &tint);
@@ -1289,7 +1300,7 @@ index 0000000000000000000000000000000000000000..fbe4c46b5bae2271d7664c63b94c2f86
 +                } else {
 +                    &event.sound
 +                };
-+                let _ = c.fill_text(&format!("{} {} {:.0}", event.part, sound, pitch), x, y);
++                let _ = c.fill_text(&format!("{} {} {}", event.part, sound, music_link::note_glyph(event.pitch)), x, y);
 +            }
 +        }
 +    }
@@ -1886,10 +1897,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..7b24cca28dc9dc6baea8fb7d380f8bed
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c56e131195
+index 0000000000000000000000000000000000000000..8644e81a5f0b36bb4d160d5a772187e357a37a9a
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,517 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -1909,6 +1920,7 @@ index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c5
 +struct LaneScene {
 +    blocks: Vec<Entity>,
 +    labels: Vec<(Entity, String)>,
++    notes: Vec<(Entity, String)>,
 +    colors: Vec<[f32; 3]>,
 +    rail: Option<Entity>,
 +    lamp: Option<Entity>,
@@ -2242,6 +2254,16 @@ index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c5
 +                                ..Default::default()
 +                            });
 +                            lane.labels.push((label, String::new()));
++                            let note = spawn_3d_text_with_properties(world, "", Vec3::zeros(), TextProperties {
++                                font_size: 16.0, alignment: TextAlignment::Center,
++                                vertical_alignment: VerticalAlignment::Middle,
++                                color: Vec4::new(0.015, 0.025, 0.045, 1.0), ..Default::default()
++                            });
++                            if let Some(transform) = world.core.get_local_transform_mut(note) {
++                                let half = std::f32::consts::FRAC_1_SQRT_2;
++                                transform.rotation = Quat::new(half, -half, 0.0, 0.0);
++                            }
++                            lane.notes.push((note, String::new()));
 +                        }
 +                        let entity = lane.blocks[used];
 +                        let tint = if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
@@ -2288,6 +2310,15 @@ index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c5
 +                            *name = display;
 +                        }
 +                        label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
++                        let (note, previous) = &mut lane.notes[used];
++                        let glyph = protocol::music_link_types::note_glyph(event.pitch);
++                        set_label(world, *note, previous, &glyph);
++                        let bounds = world.core.get_text(*note).filter(|t| !t.dirty)
++                            .and_then(|t| t.cached_mesh.as_ref()).map(|mesh| mesh.bounds)
++                            .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
++                        let scale = if original { 0.0 } else { crate::music_text::face_text_scale(length, 0.22 + hit * 0.15, bounds.x, bounds.y) };
++                        pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5,
++                            y + lift + thickness * 0.5 + 0.006, z + 0.15), Vec3::repeat(scale));
 +                        used += 1;
 +                        total_used += 1;
 +                    }
@@ -2297,6 +2328,7 @@ index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c5
 +                pose(world, *entity, Vec3::zeros(), Vec3::zeros());
 +            }
 +            for (entity, _) in &lane.labels[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
++            for (entity, _) in &lane.notes[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
 +            if let Some((entity, text)) = &mut lane.heading {
 +                let label = visible.get(index).map_or("", |l| l.label.as_str());
 +                if text != label {
@@ -2388,10 +2420,10 @@ index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c5
 +}
 diff --git a/worker/src/music_text.rs b/worker/src/music_text.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..0e4c16fafa07e238ca8c1672b1df51715cf897c0
+index 0000000000000000000000000000000000000000..ac55d9bee11e0b572489cac57cac28d74c898a6f
 --- /dev/null
 +++ b/worker/src/music_text.rs
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,45 @@
 +//! Nightshade's 16px text mesh is 0.16 world units tall before entity scaling.
 +pub fn world_scale_for_pixels(depth: f32, projection_y: f32, height: f32, pixels: f32) -> Option<f32> {
 +    if ![depth, projection_y, height, pixels].iter().all(|v| v.is_finite() && *v > 0.0) {
@@ -2400,9 +2432,26 @@ index 0000000000000000000000000000000000000000..0e4c16fafa07e238ca8c1672b1df5171
 +    Some((2.0 * depth * pixels / (projection_y * height * 0.16)).clamp(0.05, 32.0))
 +}
 +
++/// Uniform scale that keeps shaped text inside a block's top face.
++pub fn face_text_scale(width: f32, depth: f32, text_width: f32, text_height: f32) -> f32 {
++    if ![width, depth, text_width, text_height].iter().all(|v| v.is_finite() && *v > 0.0) { return 0.0; }
++    (width * 0.85 / text_width).min(depth * 0.75 / text_height)
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    #[test]
++    fn face_glyph_fits_short_and_long_blocks_without_stretching() {
++        for width in [0.06, 0.3, 5.0] {
++            let scale = face_text_scale(width, 0.22, 0.3, 0.16);
++            assert!(scale > 0.0);
++            assert!(0.3 * scale <= width * 0.85 + 1e-6);
++            assert!(0.16 * scale <= 0.22 * 0.75 + 1e-6);
++        }
++        assert_eq!(face_text_scale(0.1, 0.2, 0.0, 0.16), 0.0);
++    }
 +
 +    #[test]
 +    fn normal_camera_keeps_labels_readable_instead_of_subpixel() {

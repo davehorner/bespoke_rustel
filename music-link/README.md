@@ -86,6 +86,11 @@ parent (**all lanes** applies the toggle to every parent). Stage, piano roll and
 wordfall separate the tracks spatially; other event views retain their shared
 geometry and part colors. Drag to pan and zoom to inspect larger arrangements.
 Event-name labels have transparent backgrounds.
+Nightshade also prints note names (`C4`, `F#3`, etc.) on the 3D blocks' top faces
+and inside piano-roll blocks; unpitched hits show `x`. Fractional pitches retain
+their cent offsets. Glyphs fit the block footprint without a background plate;
+zoom in to read very short notes. Part names remain above the 3D blocks and on
+their virtual-lane headings. Wordfall uses the same note/hit notation.
 
 Parts are discovered from the events Rustel actually schedules, without querying
 patterns a second time. They stay registered through rests and repeated cycles

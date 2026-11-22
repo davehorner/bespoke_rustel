@@ -193,7 +193,7 @@
         },
         {
           "path": "Cargo.toml",
-          "sha256": "14f4d49419d65e242aec5e31759336bffed5b100f7913bee5775b0d0a30e2cf3"
+          "sha256": "f8ad9f38a4695a498a0c2ecb8f1f7c0719dbcc3d2cbdcf75dcb6f0935234eb36"
         },
         {
           "path": "protocol/Cargo.toml",
@@ -225,7 +225,7 @@
         },
         {
           "path": "src/music_canvas.rs",
-          "sha256": "514003256b1da10fd624e21cd58402d79eec016ed01c9b2f383b8b04dab6e089"
+          "sha256": "c6ae4c99ccc5788083a10d5a0310116ba4689984dea5db73bd52030f0243bc2c"
         },
         {
           "path": "src/music_geometry.rs",
@@ -245,19 +245,19 @@
         },
         {
           "path": "worker/src/music.rs",
-          "sha256": "c333e9dd30f61f1ed1a1c5de031aa1c36eb3be811a2c8b795726f7c7a314c3d2"
+          "sha256": "4565a2d9ac9502a498340e567c627450d7f8b3cf0de21ba7827d40e0e3544ea7"
         },
         {
           "path": "worker/src/music_text.rs",
-          "sha256": "260e7d39af50210762e0bd32eb13d412b8ed94d9c440ada0d3b0325127295b19"
+          "sha256": "ba18a63bdcbf247ee5b7e02ea93353ca4f5ae21389715498caf405de28e737f4"
         },
         {
           "path": "worker/src/state.rs",
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "e933bd565074bb22435887bac21fcbf8d45f7acaa7098fac431be6e09b8f3ffb",
-      "result_tree": "0db36d57dc12de21911f69ca28fd45158651c833"
+      "patch_sha256": "0022b03a856b8ccc770ea17cacb42f621e2132c57bc5a1af609a7dbb11b34afc",
+      "result_tree": "47ac7992b89bae6fcec66ad4ba86a8b35cac9eb8"
     },
     {
       "name": "hearsay",

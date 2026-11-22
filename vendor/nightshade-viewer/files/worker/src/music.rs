@@ -17,6 +17,7 @@ pub const PALETTE: [[f32; 3]; 8] = [
 struct LaneScene {
     blocks: Vec<Entity>,
     labels: Vec<(Entity, String)>,
+    notes: Vec<(Entity, String)>,
     colors: Vec<[f32; 3]>,
     rail: Option<Entity>,
     lamp: Option<Entity>,
@@ -350,6 +351,16 @@ impl MusicScene {
                                 ..Default::default()
                             });
                             lane.labels.push((label, String::new()));
+                            let note = spawn_3d_text_with_properties(world, "", Vec3::zeros(), TextProperties {
+                                font_size: 16.0, alignment: TextAlignment::Center,
+                                vertical_alignment: VerticalAlignment::Middle,
+                                color: Vec4::new(0.015, 0.025, 0.045, 1.0), ..Default::default()
+                            });
+                            if let Some(transform) = world.core.get_local_transform_mut(note) {
+                                let half = std::f32::consts::FRAC_1_SQRT_2;
+                                transform.rotation = Quat::new(half, -half, 0.0, 0.0);
+                            }
+                            lane.notes.push((note, String::new()));
                         }
                         let entity = lane.blocks[used];
                         let tint = if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
@@ -396,6 +407,15 @@ impl MusicScene {
                             *name = display;
                         }
                         label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
+                        let (note, previous) = &mut lane.notes[used];
+                        let glyph = protocol::music_link_types::note_glyph(event.pitch);
+                        set_label(world, *note, previous, &glyph);
+                        let bounds = world.core.get_text(*note).filter(|t| !t.dirty)
+                            .and_then(|t| t.cached_mesh.as_ref()).map(|mesh| mesh.bounds)
+                            .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
+                        let scale = if original { 0.0 } else { crate::music_text::face_text_scale(length, 0.22 + hit * 0.15, bounds.x, bounds.y) };
+                        pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5,
+                            y + lift + thickness * 0.5 + 0.006, z + 0.15), Vec3::repeat(scale));
                         used += 1;
                         total_used += 1;
                     }
@@ -405,6 +425,7 @@ impl MusicScene {
                 pose(world, *entity, Vec3::zeros(), Vec3::zeros());
             }
             for (entity, _) in &lane.labels[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
+            for (entity, _) in &lane.notes[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
             if let Some((entity, text)) = &mut lane.heading {
                 let label = visible.get(index).map_or("", |l| l.label.as_str());
                 if text != label {

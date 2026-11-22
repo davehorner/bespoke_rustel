@@ -344,8 +344,18 @@ fn draw_events(
                         c.set_global_alpha(if active { 1.0 } else { 0.55 });
                     }
                 }
-                let height = if event.part.is_empty() { 8.0 } else { 14.0 };
+                let height = 14.0;
                 c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
+                let glyph = music_link::note_glyph(event.pitch);
+                c.save();
+                c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
+                c.set_font("11px monospace");
+                let text_width = c.measure_text(&glyph).map(|m| m.width()).unwrap_or(1.0).max(1.0);
+                let size = (11.0 * (length-2.0).max(1.0) / text_width).min(11.0);
+                c.set_font(&format!("{size}px monospace"));
+                c.set_text_align("center");
+                label(c, &glyph, x_at(event.cycle) + length*0.5, y + size*0.35, "#080e1b");
+                c.restore();
                 if !event.part.is_empty() {
                     c.save();
                     label(c, &event.part, x_at(event.cycle) + 2.0, y - 9.0, &tint);
@@ -360,7 +370,7 @@ fn draw_events(
                 } else {
                     &event.sound
                 };
-                let _ = c.fill_text(&format!("{} {} {:.0}", event.part, sound, pitch), x, y);
+                let _ = c.fill_text(&format!("{} {} {}", event.part, sound, music_link::note_glyph(event.pitch)), x, y);
             }
         }
     }

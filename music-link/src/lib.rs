@@ -25,6 +25,17 @@ mod named_part_tests {
     use super::*;
 
     #[test]
+    fn block_glyphs_distinguish_notes_from_unpitched_hits() {
+        assert_eq!(note_glyph(Some(60.0)), "C4");
+        assert_eq!(note_glyph(Some(61.0)), "C#4");
+        assert_eq!(note_glyph(Some(69.0)), "A4");
+        assert_eq!(note_glyph(Some(-1.0)), "B-2");
+        assert_eq!(note_glyph(Some(60.25)), "C4+25c");
+        assert_eq!(note_glyph(None), "x");
+        assert_eq!(note_glyph(Some(f64::NAN)), "x");
+    }
+
+    #[test]
     fn names_have_stable_bounded_colors_and_old_events_still_decode() {
         assert_eq!(named_color("bass"), named_color("bass"));
         assert_ne!(named_color("bass"), named_color("rhythm"));
@@ -155,6 +166,17 @@ pub struct Event {
     pub pitch: Option<f64>,
     pub sound: String,
     pub gain: f64,
+}
+
+/// Scientific pitch name for timeline glyphs. Unpitched samples are hits (`x`),
+/// never the arbitrary height the renderer uses to position a drum block.
+pub fn note_glyph(pitch: Option<f64>) -> String {
+    let Some(pitch) = pitch.filter(|p| p.is_finite() && (-256.0..=256.0).contains(p)) else { return "x".into(); };
+    let midi = pitch.round() as i32;
+    let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let name = format!("{}{}", names[midi.rem_euclid(12) as usize], midi.div_euclid(12)-1);
+    let cents = ((pitch - f64::from(midi)) * 100.0).round() as i32;
+    if cents == 0 { name } else { format!("{name}{cents:+}c") }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
