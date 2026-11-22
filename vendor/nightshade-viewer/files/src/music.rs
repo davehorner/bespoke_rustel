@@ -53,6 +53,14 @@ pub fn enabled() -> bool {
         .is_some_and(|s| s.trim_start_matches('?').split('&').any(|p| p == "music=1"))
 }
 
+pub fn toggle_parts(state: ViewerState, lane: &str) {
+    if !state.music.with_untracked(|s| s.as_ref().is_some_and(|s| s.lanes.iter().any(|l| l.id == lane && !l.parts.is_empty()))) { return; }
+    state.music_expanded.update(|ids| {
+        if ids.iter().any(|id| id == lane) { ids.retain(|id| id != lane); }
+        else { ids.push(lane.to_owned()); }
+    });
+}
+
 pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
     let Ok(socket) = WebSocket::new("ws://127.0.0.1:9613") else {
         return;
@@ -229,6 +237,7 @@ pub fn MusicPanel(
                 .music-lane{padding:9px 13px;border:1px solid #ffffff12;background:#0a1220e9;border-radius:9px;width:340px;max-width:80vw;backdrop-filter:blur(12px)}
                 .music-lane-name{font-size:11px;font-weight:500;margin-bottom:5px}
                 .music-lane summary{cursor:pointer;font:11px monospace;overflow-wrap:anywhere}
+                .music-part-toggle{border:0;background:transparent;color:inherit;padding:0 7px 0 0;font:inherit;cursor:pointer}
                 .music-source{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 monospace;color:#d5e5f5;margin:12px 0 4px;user-select:text}
                 .music-token-string{color:#a8d991}.music-token-number{color:#ffba73}.music-token-function{color:#70cfff}.music-token-keyword{color:#c59aff}.music-token-comment{color:#778b9f}
                 .music-lane-meta{font:9px monospace;letter-spacing:.08em;color:#74859d}
@@ -291,9 +300,10 @@ pub fn MusicPanel(
                             let expanded = RwSignal::new(false);
                             let lane_id = lane.id.clone();
                             let metadata_id = lane.id.clone();
-                            let expand_id = lane.id.clone();
-                            let checked_id = lane.id.clone();
+                            let expand_id = StoredValue::new(lane.id.clone());
+                            let checked_id = StoredValue::new(lane.id.clone());
                             let part_count_id = lane.id.clone();
+                            let part_count = Memo::new(move |_| state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())));
                             let line = lane.line;
                             view! { <div class="music-lane" style:border-top=format!("2px solid {}", palette[i % 8])>
                                 <details on:toggle=move |event| {
@@ -302,16 +312,20 @@ pub fn MusicPanel(
                                         expanded.set(element.has_attribute("open"));
                                     }
                                 }>
-                                    <summary class="music-lane-name" style:color=palette[i % 8]>{preview}</summary>
+                                    <summary class="music-lane-name" style:color=palette[i % 8]>
+                                        <Show when=move || { part_count.get() != 0 }>
+                                            <button type="button" class="music-part-toggle"
+                                                aria-label=move || if state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))) { "Collapse named parts" } else { "Expand named parts" }
+                                                aria-expanded=move || state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))).to_string()
+                                                on:click=move |e| { e.prevent_default(); e.stop_propagation(); expand_id.with_value(|id| toggle_parts(state, id)); }>
+                                                {move || if state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))) { "−" } else { "+" }}
+                                            </button>
+                                        </Show>
+                                        {preview}
+                                    </summary>
                                     <crate::music_source::MusicSource state source lane=lane_id line color=palette[i % 8] expanded />
                                 </details>
                                 <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("{}  /  LINE {}  /  {:+} ST", metadata_id, line, transpose) }}</div>
-                                <label class="music-lane-meta">
-                                    <input type="checkbox" aria-label="Expand named parts"
-                                        prop:checked=move || state.music_expanded.with(|ids| ids.contains(&checked_id))
-                                        on:change=move |e| { let open=event_target_checked(&e); state.music_expanded.update(|ids| { ids.retain(|id| id != &expand_id); if open { ids.push(expand_id.clone()); } }); } />
-                                    {move || state.music.with(|s| format!(" Expand parts ({})", s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())))}
-                                </label>
                             </div> }
                             }
                         />

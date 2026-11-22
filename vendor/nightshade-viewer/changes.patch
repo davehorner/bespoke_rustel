@@ -406,7 +406,7 @@ index 5cdeca9b317e7fadbb44bf4688babd81ffd63f6c..37060dccae038b0f23990ba750103699
  serde_json = { version = "1", optional = true }
  enum2schema = { version = "0.1", optional = true }
 diff --git a/protocol/src/lib.rs b/protocol/src/lib.rs
-index 398fae97010345175d36a1c3d1725d6c2e984a95..75ef90460633b31a6841ffa27f9e2503faecdf8e 100644
+index 398fae97010345175d36a1c3d1725d6c2e984a95..7ffcb60d7948de1b7f54d84791e3280dd98f7f94 100644
 --- a/protocol/src/lib.rs
 +++ b/protocol/src/lib.rs
 @@ -1,3 +1,4 @@
@@ -433,6 +433,15 @@ index 398fae97010345175d36a1c3d1725d6c2e984a95..75ef90460633b31a6841ffa27f9e2503
      /// Sent once with the `OffscreenCanvas` in the transfer list.
      Init {
          width: f32,
+@@ -345,6 +358,8 @@ pub struct PolyhavenEntry {
+ /// Worker to page.
+ #[derive(Clone, Serialize, Deserialize)]
+ pub enum WorkerMessage {
++    /// A click on an expandable music core-line heading, scoped to its parent.
++    MusicToggleParts { lane: String },
+     Ready {
+         context: String,
+         adapter: String,
 diff --git a/runtime/worker.js b/runtime/worker.js
 index 5bad1b903e894d762956c9b8ee6884934e516347..f73ab0301b09968e84fdd58e0b60892fb09a2efd 100644
 --- a/runtime/worker.js
@@ -493,10 +502,10 @@ index 429d2f785165bd27107d73032645e2ae2beb7b94..018eaf0c78ace22936d2ffef3befe323
              <button
                  class="fixed bottom-3 right-3 z-40 w-2.5 h-2.5 rounded-full bg-white/25 hover:bg-white/70 transition-colors"
 diff --git a/src/bridge.rs b/src/bridge.rs
-index 25f43cfe290e332ca3b55bfaadcf684b3286909d..f46d5b6ba78229f7ed927df2cd632203d73d5d43 100644
+index 25f43cfe290e332ca3b55bfaadcf684b3286909d..1d09fb6a5711b9a5953cc4ce64b9fa4e3c399cf7 100644
 --- a/src/bridge.rs
 +++ b/src/bridge.rs
-@@ -40,7 +40,20 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
+@@ -40,11 +40,25 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
      #[cfg(feature = "agent")]
      let response_socket = relay_socket.clone();
  
@@ -517,7 +526,12 @@ index 25f43cfe290e332ca3b55bfaadcf684b3286909d..f46d5b6ba78229f7ed927df2cd632203
          let Ok(message) = serde_wasm_bindgen::from_value::<WorkerMessage>(event.data()) else {
              return;
          };
-@@ -52,7 +65,7 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
+         match message {
++            WorkerMessage::MusicToggleParts { lane } => crate::music::toggle_parts(state, &lane),
+             WorkerMessage::Ready { context, adapter } => {
+                 state
+                     .context
+@@ -52,7 +66,7 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
                  state.adapter.set(adapter);
                  state.ready.set(true);
              }
@@ -526,7 +540,7 @@ index 25f43cfe290e332ca3b55bfaadcf684b3286909d..f46d5b6ba78229f7ed927df2cd632203
              WorkerMessage::Camera { right, up, forward } => {
                  state.camera_basis.set([right, up, forward])
              }
-@@ -112,6 +125,11 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
+@@ -112,6 +126,11 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
      let bridge = Bridge { worker };
      send_init(&bridge, offscreen, width, height);
      send(&bridge, &ClientMessage::RefreshBrowsers);
@@ -555,10 +569,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..0a73149a0a150d3efdaf9237feb463d46a9d2197
+index 0000000000000000000000000000000000000000..629ea47f37794277af9239710571b6033dfb677a
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,343 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -612,6 +626,14 @@ index 0000000000000000000000000000000000000000..0a73149a0a150d3efdaf9237feb463d4
 +    web_sys::window()
 +        .and_then(|w| w.location().search().ok())
 +        .is_some_and(|s| s.trim_start_matches('?').split('&').any(|p| p == "music=1"))
++}
++
++pub fn toggle_parts(state: ViewerState, lane: &str) {
++    if !state.music.with_untracked(|s| s.as_ref().is_some_and(|s| s.lanes.iter().any(|l| l.id == lane && !l.parts.is_empty()))) { return; }
++    state.music_expanded.update(|ids| {
++        if ids.iter().any(|id| id == lane) { ids.retain(|id| id != lane); }
++        else { ids.push(lane.to_owned()); }
++    });
 +}
 +
 +pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
@@ -790,6 +812,7 @@ index 0000000000000000000000000000000000000000..0a73149a0a150d3efdaf9237feb463d4
 +                .music-lane{padding:9px 13px;border:1px solid #ffffff12;background:#0a1220e9;border-radius:9px;width:340px;max-width:80vw;backdrop-filter:blur(12px)}
 +                .music-lane-name{font-size:11px;font-weight:500;margin-bottom:5px}
 +                .music-lane summary{cursor:pointer;font:11px monospace;overflow-wrap:anywhere}
++                .music-part-toggle{border:0;background:transparent;color:inherit;padding:0 7px 0 0;font:inherit;cursor:pointer}
 +                .music-source{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 monospace;color:#d5e5f5;margin:12px 0 4px;user-select:text}
 +                .music-token-string{color:#a8d991}.music-token-number{color:#ffba73}.music-token-function{color:#70cfff}.music-token-keyword{color:#c59aff}.music-token-comment{color:#778b9f}
 +                .music-lane-meta{font:9px monospace;letter-spacing:.08em;color:#74859d}
@@ -852,9 +875,10 @@ index 0000000000000000000000000000000000000000..0a73149a0a150d3efdaf9237feb463d4
 +                            let expanded = RwSignal::new(false);
 +                            let lane_id = lane.id.clone();
 +                            let metadata_id = lane.id.clone();
-+                            let expand_id = lane.id.clone();
-+                            let checked_id = lane.id.clone();
++                            let expand_id = StoredValue::new(lane.id.clone());
++                            let checked_id = StoredValue::new(lane.id.clone());
 +                            let part_count_id = lane.id.clone();
++                            let part_count = Memo::new(move |_| state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())));
 +                            let line = lane.line;
 +                            view! { <div class="music-lane" style:border-top=format!("2px solid {}", palette[i % 8])>
 +                                <details on:toggle=move |event| {
@@ -863,16 +887,20 @@ index 0000000000000000000000000000000000000000..0a73149a0a150d3efdaf9237feb463d4
 +                                        expanded.set(element.has_attribute("open"));
 +                                    }
 +                                }>
-+                                    <summary class="music-lane-name" style:color=palette[i % 8]>{preview}</summary>
++                                    <summary class="music-lane-name" style:color=palette[i % 8]>
++                                        <Show when=move || { part_count.get() != 0 }>
++                                            <button type="button" class="music-part-toggle"
++                                                aria-label=move || if state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))) { "Collapse named parts" } else { "Expand named parts" }
++                                                aria-expanded=move || state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))).to_string()
++                                                on:click=move |e| { e.prevent_default(); e.stop_propagation(); expand_id.with_value(|id| toggle_parts(state, id)); }>
++                                                {move || if state.music_expanded.with(|ids| checked_id.with_value(|id| ids.contains(id))) { "−" } else { "+" }}
++                                            </button>
++                                        </Show>
++                                        {preview}
++                                    </summary>
 +                                    <crate::music_source::MusicSource state source lane=lane_id line color=palette[i % 8] expanded />
 +                                </details>
 +                                <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("{}  /  LINE {}  /  {:+} ST", metadata_id, line, transpose) }}</div>
-+                                <label class="music-lane-meta">
-+                                    <input type="checkbox" aria-label="Expand named parts"
-+                                        prop:checked=move || state.music_expanded.with(|ids| ids.contains(&checked_id))
-+                                        on:change=move |e| { let open=event_target_checked(&e); state.music_expanded.update(|ids| { ids.retain(|id| id != &expand_id); if open { ids.push(expand_id.clone()); } }); } />
-+                                    {move || state.music.with(|s| format!(" Expand parts ({})", s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())))}
-+                                </label>
 +                            </div> }
 +                            }
 +                        />
@@ -1790,7 +1818,7 @@ index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..e739e6ba5160572230aaae5d5b5bb512
              adapter: RwSignal::new(String::new()),
              fps: RwSignal::new(0.0),
 diff --git a/worker/src/lib.rs b/worker/src/lib.rs
-index 053fdb7b2d271078799eb0539b9150720397f4a1..f55520b1cd76a8a8a47b67ce10b3fab570d67b69 100644
+index 053fdb7b2d271078799eb0539b9150720397f4a1..7b24cca28dc9dc6baea8fb7d380f8bed68cb69f9 100644
 --- a/worker/src/lib.rs
 +++ b/worker/src/lib.rs
 @@ -1,6 +1,8 @@
@@ -1830,7 +1858,20 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..f55520b1cd76a8a8a47b67ce10b3fab5
          ClientMessage::PointerMove { x, y } => {
              input_inject_cursor_moved(world, Vec2::new(x, y));
          }
-@@ -332,6 +348,7 @@ fn start_render_loop(_scope: DedicatedWorkerGlobalScope, app_slot: AppSlot) {
+@@ -154,7 +170,11 @@ pub(crate) fn apply_client_message(world: &mut World, viewer: &mut Viewer, messa
+             input_inject_touch(world, id, touch_phase(phase), Vec2::new(x, y));
+         }
+         ClientMessage::Pick { x, y } => {
+-            systems::picking::request(&mut viewer.viewer, world, x, y);
++            if let Some(lane) = viewer.music.part_heading_at(world, x, y) {
++                post(&WorkerMessage::MusicToggleParts { lane });
++            } else if !viewer.music.active() {
++                systems::picking::request(&mut viewer.viewer, world, x, y);
++            }
+         }
+         ClientMessage::Select { id } => {
+             systems::selection::select_by_id(&mut viewer.viewer, world, id);
+@@ -332,6 +352,7 @@ fn start_render_loop(_scope: DedicatedWorkerGlobalScope, app_slot: AppSlot) {
  
      spawn_animation_frame_loop(move || {
          if let Some(app) = app_slot.borrow_mut().as_mut() {
@@ -1840,10 +1881,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..f55520b1cd76a8a8a47b67ce10b3fab5
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..42c789ab696136a719e05bfc17c5fd3ddf6ab89b
+index 0000000000000000000000000000000000000000..2c31a9bfec1d4c25d0de9556ee22d2c56e131195
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,496 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -1970,6 +2011,33 @@ index 0000000000000000000000000000000000000000..42c789ab696136a719e05bfc17c5fd3d
 +    })
 +}
 +impl MusicScene {
++    /// Pick text in the same viewport coordinates as the model-pick gesture.
++    /// Only real parents with discovered parts are interactive; virtual child
++    /// headings and parents with zero parts never toggle expansion.
++    pub fn part_heading_at(&self, world: &World, x: f32, y: f32) -> Option<String> {
++        if self.mode != 0 { return None; }
++        let source = self.snapshot.as_ref()?;
++        let view = self.projection.as_ref()?;
++        let camera = LabelCamera::read(world)?;
++        let (width, height) = world.resources.window.cached_viewport_size?;
++        let mut nearest: Option<(f32, String)> = None;
++        for (index, row) in view.lanes.iter().take(320).enumerate() {
++            if !source.lanes.iter().any(|l| l.id == row.id && !l.parts.is_empty()) { continue; }
++            let clip = camera.clip * Vec4::new(-7.5, 0.25, index as f32 * 1.7, 1.0);
++            if clip.w <= 0.0 { continue; }
++            let px = (clip.x / clip.w + 1.0) * width as f32 * 0.5;
++            let py = (1.0 - clip.y / clip.w) * height as f32 * 0.5;
++            let text_width = self.lanes.get(index).and_then(|l| l.heading.as_ref())
++                .and_then(|(entity, _)| world.core.get_text(*entity))
++                .and_then(|t| t.cached_mesh.as_ref()).map_or(24.0, |mesh| mesh.bounds.x / 0.16 * 13.0);
++            if x >= px-4.0 && x <= px+text_width.min(340.0) && y >= py-16.0 && y <= py+12.0
++                && nearest.as_ref().is_none_or(|(depth, _)| clip.w < *depth) {
++                nearest = Some((clip.w, row.id.clone()));
++            }
++        }
++        nearest.map(|(_, lane)| lane)
++    }
++
 +    pub fn active(&self) -> bool {
 +        self.snapshot.is_some()
 +    }

@@ -78,7 +78,9 @@ tracks. The second parent can expand separately. Reusing a part in two parents
 creates a track under each, without merging their events. Inline unnamed events
 stay on the parent line. Collapsing puts all events back on their parent.
 
-In Nightshade, check **Expand parts** in each existing lane card. In Bespoke,
+In Nightshade, click **+** / **−** beside a lane-card label or on its 3D core-line
+heading. Lanes with zero discovered parts have no expansion control. Clicking
+the card's source disclosure still opens source code independently. In Bespoke,
 click `[+]` / `[-]` on a Stage core-line label, or use **parts** for the selected
 parent (**all lanes** applies the toggle to every parent). Stage, piano roll and
 wordfall separate the tracks spatially; other event views retain their shared

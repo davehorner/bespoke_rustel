@@ -170,7 +170,11 @@ pub(crate) fn apply_client_message(world: &mut World, viewer: &mut Viewer, messa
             input_inject_touch(world, id, touch_phase(phase), Vec2::new(x, y));
         }
         ClientMessage::Pick { x, y } => {
-            systems::picking::request(&mut viewer.viewer, world, x, y);
+            if let Some(lane) = viewer.music.part_heading_at(world, x, y) {
+                post(&WorkerMessage::MusicToggleParts { lane });
+            } else if !viewer.music.active() {
+                systems::picking::request(&mut viewer.viewer, world, x, y);
+            }
         }
         ClientMessage::Select { id } => {
             systems::selection::select_by_id(&mut viewer.viewer, world, id);

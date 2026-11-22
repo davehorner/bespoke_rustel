@@ -358,6 +358,8 @@ pub struct PolyhavenEntry {
 /// Worker to page.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum WorkerMessage {
+    /// A click on an expandable music core-line heading, scoped to its parent.
+    MusicToggleParts { lane: String },
     Ready {
         context: String,
         adapter: String,

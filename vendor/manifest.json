@@ -201,7 +201,7 @@
         },
         {
           "path": "protocol/src/lib.rs",
-          "sha256": "4104f7fbc7054f78f435be7bf762e8bd57dcd3d703f0323a2bc479a482eb3424"
+          "sha256": "8ec954d5c2584e29a1d26632a6535366d351197f6d6dd0ebf5ec6f7e0962cd0d"
         },
         {
           "path": "runtime/worker.js",
@@ -213,7 +213,7 @@
         },
         {
           "path": "src/bridge.rs",
-          "sha256": "e0e77a249f0b2853a4ffe75d0620d517dcc6ab5e95a5db96bc671327279f20d3"
+          "sha256": "8fb92f72ccb2eb813ffdf38764baa422e78718a82bbde6e453328b5c11b4c753"
         },
         {
           "path": "src/lib.rs",
@@ -221,7 +221,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "ae2fc48cea79a44668ce5102929f54f554100e243090f90f235d48f7979bc6e0"
+          "sha256": "9176b2b58c16f3478b76d1477124a8e31d1b7877279d80d008d73a12aab8a430"
         },
         {
           "path": "src/music_canvas.rs",
@@ -241,11 +241,11 @@
         },
         {
           "path": "worker/src/lib.rs",
-          "sha256": "91befb3386111543c01c628b28839f3329204b03a265d53e95119fa1ea431e0b"
+          "sha256": "1389d6c3c221b44b660af8c945d361415aa2844b4454026a0c34640acdbde8d6"
         },
         {
           "path": "worker/src/music.rs",
-          "sha256": "ecba8599408a5df3772823827a0c8808deb50a85babf4404b59c26a603bf2692"
+          "sha256": "c333e9dd30f61f1ed1a1c5de031aa1c36eb3be811a2c8b795726f7c7a314c3d2"
         },
         {
           "path": "worker/src/music_text.rs",
@@ -256,8 +256,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "90e251b220c15add02964072c33198d1ef09d3d1827ffdb772c10cdf090957b1",
-      "result_tree": "b11995c47424cf9f34804cbcdabd628fd197ba97"
+      "patch_sha256": "de8f0a04fe38a711bcefc1da8e9d428f5731288b0aa36e072143e9ba3e370062",
+      "result_tree": "fea806245981714bb008bb077c338dda81d4bc4b"
     },
     {
       "name": "hearsay",

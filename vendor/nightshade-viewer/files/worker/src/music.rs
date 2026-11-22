@@ -124,6 +124,33 @@ fn axis_label(world: &mut World, value: &str) -> Entity {
     })
 }
 impl MusicScene {
+    /// Pick text in the same viewport coordinates as the model-pick gesture.
+    /// Only real parents with discovered parts are interactive; virtual child
+    /// headings and parents with zero parts never toggle expansion.
+    pub fn part_heading_at(&self, world: &World, x: f32, y: f32) -> Option<String> {
+        if self.mode != 0 { return None; }
+        let source = self.snapshot.as_ref()?;
+        let view = self.projection.as_ref()?;
+        let camera = LabelCamera::read(world)?;
+        let (width, height) = world.resources.window.cached_viewport_size?;
+        let mut nearest: Option<(f32, String)> = None;
+        for (index, row) in view.lanes.iter().take(320).enumerate() {
+            if !source.lanes.iter().any(|l| l.id == row.id && !l.parts.is_empty()) { continue; }
+            let clip = camera.clip * Vec4::new(-7.5, 0.25, index as f32 * 1.7, 1.0);
+            if clip.w <= 0.0 { continue; }
+            let px = (clip.x / clip.w + 1.0) * width as f32 * 0.5;
+            let py = (1.0 - clip.y / clip.w) * height as f32 * 0.5;
+            let text_width = self.lanes.get(index).and_then(|l| l.heading.as_ref())
+                .and_then(|(entity, _)| world.core.get_text(*entity))
+                .and_then(|t| t.cached_mesh.as_ref()).map_or(24.0, |mesh| mesh.bounds.x / 0.16 * 13.0);
+            if x >= px-4.0 && x <= px+text_width.min(340.0) && y >= py-16.0 && y <= py+12.0
+                && nearest.as_ref().is_none_or(|(depth, _)| clip.w < *depth) {
+                nearest = Some((clip.w, row.id.clone()));
+            }
+        }
+        nearest.map(|(_, lane)| lane)
+    }
+
     pub fn active(&self) -> bool {
         self.snapshot.is_some()
     }
