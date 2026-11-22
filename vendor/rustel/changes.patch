@@ -1,0 +1,1885 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 51a4f4aa0e2dfe0eb99c1ddc012b343c3b0e55f3..a73a706a6108d92e2d52684c878222bc1679e0d6 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -199,6 +199,15 @@ dependencies = [
+  "x11rb",
+ ]
+ 
++[[package]]
++name = "arc-swap"
++version = "1.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "84a22b5d51209f6de83d37a0b33d320acb8da88823e42a94c075140708f032a5"
++dependencies = [
++ "rustversion",
++]
++
+ [[package]]
+ name = "arrayref"
+ version = "0.3.9"
+@@ -252,6 +261,15 @@ dependencies = [
+  "bytemuck",
+ ]
+ 
++[[package]]
++name = "atomic-polyfill"
++version = "1.0.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8cf2bce30dfe09ef0bfaef228b9d414faaf7e563035494d7fe092dba54b300f4"
++dependencies = [
++ "critical-section",
++]
++
+ [[package]]
+ name = "atomic-waker"
+ version = "1.1.2"
+@@ -613,6 +631,15 @@ dependencies = [
+  "error-code",
+ ]
+ 
++[[package]]
++name = "cobs"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
++dependencies = [
++ "thiserror 2.0.20",
++]
++
+ [[package]]
+ name = "codespan-reporting"
+ version = "0.12.0"
+@@ -875,6 +902,12 @@ dependencies = [
+  "cfg-if",
+ ]
+ 
++[[package]]
++name = "critical-section"
++version = "1.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
++
+ [[package]]
+ name = "crossbeam-channel"
+ version = "0.5.16"
+@@ -1024,6 +1057,12 @@ version = "0.11.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
+ 
++[[package]]
++name = "data-encoding"
++version = "2.11.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
++
+ [[package]]
+ name = "dbus"
+ version = "0.9.12"
+@@ -1216,6 +1255,18 @@ version = "1.17.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9e5e8f6c15a24b9a3ee5efec809ccd006d3b30e8b3bb63c39af737c7f87daa1d"
+ 
++[[package]]
++name = "embedded-io"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
++
++[[package]]
++name = "embedded-io"
++version = "0.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
++
+ [[package]]
+ name = "encoding_rs"
+ version = "0.8.35"
+@@ -1236,6 +1287,29 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "enum2contract"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c113efaa1fcaa79a5fc960e487b155e86e1ed428a39357b78ee13da76225799a"
++dependencies = [
++ "enum2contract-derive",
++ "postcard",
++ "serde",
++ "serde_json",
++]
++
++[[package]]
++name = "enum2contract-derive"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ecee491877d72dee9a157ff78cd3a06ddd80502e398fbdecdc7d90d893958eb0"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "equivalent"
+ version = "1.0.2"
+@@ -1688,6 +1762,15 @@ dependencies = [
+  "zerocopy 0.8.56",
+ ]
+ 
++[[package]]
++name = "hash32"
++version = "0.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b0c35f58762feb77d74ebe43bdbc3210f09be9fe6742234d573bacc26ed92b67"
++dependencies = [
++ "byteorder",
++]
++
+ [[package]]
+ name = "hashbrown"
+ version = "0.15.5"
+@@ -1719,6 +1802,38 @@ dependencies = [
+  "foldhash 0.2.0",
+ ]
+ 
++[[package]]
++name = "heapless"
++version = "0.7.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cdc6457c0eb62c71aac4bc17216026d8410337c4126773b9c5daba343f17964f"
++dependencies = [
++ "atomic-polyfill",
++ "hash32",
++ "rustc_version",
++ "serde",
++ "spin",
++ "stable_deref_trait",
++]
++
++[[package]]
++name = "hearsay"
++version = "0.3.0"
++dependencies = [
++ "arc-swap",
++ "bytes",
++ "enum2contract",
++ "futures-util",
++ "postcard",
++ "serde",
++ "serde_json",
++ "smallvec",
++ "socket2 0.5.10",
++ "tokio",
++ "tokio-tungstenite",
++ "uuid",
++]
++
+ [[package]]
+ name = "heck"
+ version = "0.5.0"
+@@ -1743,6 +1858,22 @@ version = "0.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+ 
++[[package]]
++name = "http"
++version = "1.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
++dependencies = [
++ "bytes",
++ "itoa",
++]
++
++[[package]]
++name = "httparse"
++version = "1.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
++
+ [[package]]
+ name = "hybrid-array"
+ version = "0.4.14"
+@@ -2492,6 +2623,16 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "music-link"
++version = "0.1.0"
++dependencies = [
++ "hearsay",
++ "serde",
++ "serde_json",
++ "tokio",
++]
++
+ [[package]]
+ name = "naga"
+ version = "26.0.0"
+@@ -3741,7 +3882,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
+ dependencies = [
+  "phf_shared 0.11.3",
+- "rand",
++ "rand 0.8.8",
+ ]
+ 
+ [[package]]
+@@ -3911,6 +4052,19 @@ dependencies = [
+  "winreg",
+ ]
+ 
++[[package]]
++name = "postcard"
++version = "1.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6764c3b5dd454e283a30e6dfe78e9b31096d9e32036b5d1eaac7a6119ccb9a24"
++dependencies = [
++ "cobs",
++ "embedded-io 0.4.0",
++ "embedded-io 0.6.1",
++ "heapless",
++ "serde",
++]
++
+ [[package]]
+ name = "potential_utf"
+ version = "0.1.6"
+@@ -3935,6 +4089,15 @@ dependencies = [
+  "unicode-xid",
+ ]
+ 
++[[package]]
++name = "ppv-lite86"
++version = "0.2.21"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
++dependencies = [
++ "zerocopy 0.8.56",
++]
++
+ [[package]]
+ name = "presser"
+ version = "0.3.1"
+@@ -4057,7 +4220,27 @@ version = "0.8.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
+ dependencies = [
+- "rand_core",
++ "rand_core 0.6.4",
++]
++
++[[package]]
++name = "rand"
++version = "0.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
++dependencies = [
++ "rand_chacha",
++ "rand_core 0.9.5",
++]
++
++[[package]]
++name = "rand_chacha"
++version = "0.9.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
++dependencies = [
++ "ppv-lite86",
++ "rand_core 0.9.5",
+ ]
+ 
+ [[package]]
+@@ -4066,6 +4249,15 @@ version = "0.6.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+ 
++[[package]]
++name = "rand_core"
++version = "0.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
++dependencies = [
++ "getrandom 0.3.4",
++]
++
+ [[package]]
+ name = "range-alloc"
+ version = "0.1.5"
+@@ -4547,6 +4739,7 @@ dependencies = [
+  "mach2 0.6.0",
+  "midir",
+  "mp3lame-encoder",
++ "music-link",
+  "objc2 0.6.4",
+  "objc2-core-foundation",
+  "objc2-foundation 0.3.2",
+@@ -5010,6 +5203,17 @@ dependencies = [
+  "windows-sys 0.52.0",
+ ]
+ 
++[[package]]
++name = "sha1"
++version = "0.10.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.2.17",
++ "digest 0.10.7",
++]
++
+ [[package]]
+ name = "sha2"
+ version = "0.10.9"
+@@ -5183,6 +5387,16 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "socket2"
++version = "0.5.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
++dependencies = [
++ "libc",
++ "windows-sys 0.52.0",
++]
++
+ [[package]]
+ name = "socket2"
+ version = "0.6.5"
+@@ -5225,6 +5439,15 @@ dependencies = [
+  "x11rb",
+ ]
+ 
++[[package]]
++name = "spin"
++version = "0.9.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
++dependencies = [
++ "lock_api",
++]
++
+ [[package]]
+ name = "spirv"
+ version = "0.3.0+sdk-1.3.268.0"
+@@ -5756,7 +5979,7 @@ dependencies = [
+  "parking_lot",
+  "pin-project-lite",
+  "signal-hook-registry",
+- "socket2",
++ "socket2 0.6.5",
+  "tokio-macros",
+  "windows-sys 0.61.2",
+ ]
+@@ -5772,6 +5995,18 @@ dependencies = [
+  "syn 3.0.3",
+ ]
+ 
++[[package]]
++name = "tokio-tungstenite"
++version = "0.26.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
++dependencies = [
++ "futures-util",
++ "log",
++ "tokio",
++ "tungstenite",
++]
++
+ [[package]]
+ name = "toml_datetime"
+ version = "1.1.1+spec-1.1.0"
+@@ -5849,6 +6084,23 @@ version = "0.25.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+ 
++[[package]]
++name = "tungstenite"
++version = "0.26.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4793cb5e56680ecbb1d843515b23b6de9a75eb04b66643e256a396d43be33c13"
++dependencies = [
++ "bytes",
++ "data-encoding",
++ "http",
++ "httparse",
++ "log",
++ "rand 0.9.5",
++ "sha1",
++ "thiserror 2.0.20",
++ "utf-8",
++]
++
+ [[package]]
+ name = "typenum"
+ version = "1.20.1"
+@@ -5950,6 +6202,12 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "utf-8"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
++
+ [[package]]
+ name = "utf8_iter"
+ version = "1.0.4"
+diff --git a/crates/audio/Cargo.toml b/crates/audio/Cargo.toml
+index 9235de6dc32ed9944d9cd005c70f7751b571ce03..f8fb92cacf9512e1c8787626d65a690ce8635ff9 100644
+--- a/crates/audio/Cargo.toml
++++ b/crates/audio/Cargo.toml
+@@ -35,6 +35,7 @@ windows-sys = { version = "0.61", features = [
+     "Win32_System_Power",
+     "Win32_System_SystemInformation",
+     "Win32_System_Threading",
++    "Win32_System_Memory",
+     "Win32_System_WindowsProgramming",
+ ] }
+ 
+diff --git a/crates/audio/src/device.rs b/crates/audio/src/device.rs
+index b3cfd6ad7546439292f9285a4ec666a1725b1be1..43daf1f96737cc2c6afbfaeca000b8409db7e7fe 100644
+--- a/crates/audio/src/device.rs
++++ b/crates/audio/src/device.rs
+@@ -498,6 +498,8 @@ struct LiveStop(AtomicU8);
+ 
+ #[derive(Clone)]
+ struct LiveShared {
++    #[cfg(windows)]
++    lane_audio: Option<Arc<crate::lane_audio::LaneAudioMap>>,
+     ring: Arc<Ring>,
+     /// Hand-played notes bypass the score ring and its lookahead.
+     immediate: Arc<Ring>,
+diff --git a/crates/audio/src/device/callback.rs b/crates/audio/src/device/callback.rs
+index f2f9710750e24ec0e5b8cd0ee196766d3d80f85f..be5761001820aba5c4f78ad9168e11ff6b5c0b1f 100644
+--- a/crates/audio/src/device/callback.rs
++++ b/crates/audio/src/device/callback.rs
+@@ -574,6 +574,8 @@ fn write_live_output_inner<T>(
+     for (slot, pair) in pairs.iter_mut().zip(shared.orbit_pairs.iter()) {
+         *slot = pair.load(Ordering::Relaxed);
+     }
++    #[cfg(windows)]
++    if shared.lane_audio.is_some() { pairs[..crate::lane_audio::SLOTS].fill(0); }
+     backend.set_orbit_pairs(pairs);
+     let pairs_available = channels / 2;
+     // Asked for between blocks: silence what is sounding before this one
+@@ -654,6 +656,10 @@ fn write_live_output_inner<T>(
+         }
+         report.accepted += immediate.accepted;
+         report.refused += immediate.refused;
++        #[cfg(windows)]
++        if let (Some(export), Some(stems)) = (&shared.lane_audio, backend.stems()) {
++            export.write(stems, meters.sample_rate, count, &mut scratch[..count*2]);
++        }
+         // Visuals follow the score independently of listening volume and
+         // the output limiter.
+         shared
+diff --git a/crates/audio/src/device/control.rs b/crates/audio/src/device/control.rs
+index d7b90e12086989278bc41e4a3f81b559527771ab..819f558c6b46fa4a2111312d4db8b830306c54f7 100644
+--- a/crates/audio/src/device/control.rs
++++ b/crates/audio/src/device/control.rs
+@@ -50,6 +50,8 @@ impl LiveStop {
+ impl LiveShared {
+     pub(super) fn new(initial_generation: u64) -> Self {
+         Self {
++            #[cfg(windows)]
++            lane_audio: crate::lane_audio::LaneAudioMap::from_environment(),
+             ring: Arc::new(Ring::new(LIVE_RING_CAPACITY)),
+             immediate: Arc::new(Ring::new(64)),
+             live_controls: Arc::new(crate::assets::AssetRing::new()),
+@@ -759,6 +761,11 @@ impl LiveAnalysisTap {
+ }
+ 
+ impl LiveScalarDevice {
++    /// The producer advertises only successfully created exports.
++    #[cfg(windows)]
++    pub fn lane_audio_mapping(&self) -> Option<&str> {
++        self.shared.lane_audio.as_ref().map(|map| map.name())
++    }
+     /// Post-fader master level, read and reset. See [`crate::meter`].
+     pub fn take_levels(&self) -> crate::meter::MasterLevels {
+         self.shared.meter.take()
+diff --git a/crates/audio/src/device/stream.rs b/crates/audio/src/device/stream.rs
+index 83f2e29ba5130d29b287bacc4e40fb27cbb28984..be94e4a27e3306ad342379e4b3969138a15287e5 100644
+--- a/crates/audio/src/device/stream.rs
++++ b/crates/audio/src/device/stream.rs
+@@ -352,6 +352,8 @@ impl PreparedLiveOutput {
+                     ))
+                 })?;
+         backend.set_sample_resampling_mode(options.sample_resampling_mode());
++        #[cfg(windows)]
++        if shared.lane_audio.is_some() { backend.capture_stems(); }
+         backend.set_max_polyphony(shared.max_polyphony.load(Ordering::Relaxed));
+         backend.set_input(Some(shared.input.clone()));
+         backend.set_confirmations(shared.confirmations.clone());
+diff --git a/crates/audio/src/lane_audio.rs b/crates/audio/src/lane_audio.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c606a283a
+--- /dev/null
++++ b/crates/audio/src/lane_audio.rs
+@@ -0,0 +1,277 @@
++//! Windows shared-memory stereo stems. Layout is mirrored by RustelAudio.cpp.
++//! Creation, page commitment and destruction occur off the audio callback.
++use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
++use windows_sys::Win32::{
++    Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
++    System::{
++        Memory::{
++            CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
++            PAGE_READWRITE, UnmapViewOfFile,
++        },
++        SystemInformation::GetTickCount64,
++    },
++};
++
++pub const SLOTS: usize = 15; // Orbit 15 is reserved for unexported voices.
++pub const CAPACITY: usize = 16_384;
++const DATA: usize = 4096;
++const BYTES: usize = DATA + SLOTS * CAPACITY * 2 * 8;
++const MAGIC: u32 = 0x524c4131;
++
++pub struct LaneAudioMap {
++    name: String,
++    handle: HANDLE,
++    base: *mut u8,
++    monitor_fades: [AtomicU32; SLOTS],
++}
++// SAFETY: mapping lifetime is Arc-owned; all concurrent accesses are aligned atomics.
++// Only the admitted device callback writes samples and the producer never mutates them.
++unsafe impl Send for LaneAudioMap {}
++unsafe impl Sync for LaneAudioMap {}
++impl LaneAudioMap {
++    pub fn enabled() -> bool {
++        std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1")
++            && std::env::var("RUSTEL_MUSIC_LINK").is_ok_and(|s| s == "1")
++    }
++    pub fn from_environment() -> Option<std::sync::Arc<Self>> {
++        if !Self::enabled() {
++            return None;
++        }
++        match Self::create() {
++            Ok(map) => Some(std::sync::Arc::new(map)),
++            Err(error) => {
++                eprintln!("lane audio export unavailable: {error}");
++                None
++            }
++        }
++    }
++    pub fn create() -> std::io::Result<Self> {
++        static NEXT: AtomicU64 = AtomicU64::new(0);
++        let nonce = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .unwrap_or_default()
++            .as_nanos();
++        let name = format!(
++            "Local\\RustelAudio-{}-{}-{nonce}",
++            std::process::id(),
++            NEXT.fetch_add(1, Ordering::Relaxed)
++        );
++        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
++        // SAFETY: null security/file arguments create a paging-file mapping of the stated size.
++        let handle = unsafe {
++            CreateFileMappingW(
++                INVALID_HANDLE_VALUE,
++                std::ptr::null(),
++                PAGE_READWRITE,
++                0,
++                BYTES as u32,
++                wide.as_ptr(),
++            )
++        };
++        if handle.is_null() {
++            return Err(std::io::Error::last_os_error());
++        }
++        // SAFETY: handle is valid; size is the exact size created above.
++        let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, BYTES) };
++        if view.Value.is_null() {
++            let error = std::io::Error::last_os_error();
++            unsafe {
++                CloseHandle(handle);
++            }
++            return Err(error);
++        }
++        let map = Self {
++            name,
++            handle,
++            base: view.Value.cast(),
++            monitor_fades: std::array::from_fn(|_| AtomicU32::new(0)),
++        };
++        // Touch every page and initialize the storage before publishing its name.
++        for offset in (0..BYTES).step_by(8) {
++            unsafe {
++                map.base
++                    .add(offset)
++                    .cast::<AtomicU64>()
++                    .write(AtomicU64::new(0));
++            }
++        }
++        map.u32(4).store(1, Ordering::Relaxed);
++        map.u32(12).store(SLOTS as u32, Ordering::Relaxed);
++        map.u32(16).store(CAPACITY as u32, Ordering::Relaxed);
++        map.u32(0).store(MAGIC, Ordering::Release);
++        Ok(map)
++    }
++    fn u32(&self, offset: usize) -> &AtomicU32 {
++        unsafe { &*self.base.add(offset).cast::<AtomicU32>() }
++    }
++    fn u64(&self, offset: usize) -> &AtomicU64 {
++        unsafe { &*self.base.add(offset).cast::<AtomicU64>() }
++    }
++    pub fn name(&self) -> &str {
++        &self.name
++    }
++    /// Called by the single admitted callback after each render chunk. The taps
++    /// include the whole effect chain, even when no new notes are scheduled.
++    pub fn write(&self, stems: &crate::scalar::Stems, rate: u32, frames: usize, main: &mut [f32]) {
++        let old_rate = self.u32(8).load(Ordering::Relaxed);
++        if old_rate != rate {
++            self.u32(8).store(rate, Ordering::Release);
++            self.u64(32).fetch_add(1, Ordering::AcqRel);
++        }
++        let start = self.u64(24).load(Ordering::Relaxed);
++        // GetTickCount64 reads the Windows monotonic uptime; readers use the same clock.
++        let now = unsafe { GetTickCount64() };
++        for slot in 0..SLOTS {
++            let samples = stems.orbit(slot, frames);
++            let lease = self.u64(64 + slot * 64).load(Ordering::Acquire);
++            let active = lease != 0 && now.saturating_sub(lease) < 500;
++            let target = if active { 1.0f32 } else { 0.0 };
++            let step = 1.0 / (rate as f32 * 0.01).max(1.0);
++            let mut fade = f32::from_bits(self.monitor_fades[slot].load(Ordering::Relaxed));
++            for frame in 0..frames {
++                fade = (fade + (target - fade).clamp(-step, step)).clamp(0.0, 1.0);
++                let absolute = start + frame as u64;
++                for ch in 0..2 {
++                    let sample = samples[frame * 2 + ch];
++                    let tag = (absolute as u32 as u64) << 32;
++                    let at = DATA
++                        + ((slot * CAPACITY + (absolute as usize & (CAPACITY - 1))) * 2 + ch) * 8;
++                    self.u64(at)
++                        .store(tag | u64::from(sample.to_bits()), Ordering::Release);
++                    if fade != 0.0 {
++                        main[frame * 2 + ch] -= sample * fade;
++                    }
++                }
++            }
++            self.monitor_fades[slot].store(fade.to_bits(), Ordering::Relaxed);
++        }
++        self.u64(24).store(start + frames as u64, Ordering::Release);
++    }
++}
++impl Drop for LaneAudioMap {
++    fn drop(&mut self) {
++        unsafe {
++            UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
++                Value: self.base.cast(),
++            });
++            CloseHandle(self.handle);
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::{AudioBackend, DelayControls, Envelope, OnsetEvent, ScalarBackend};
++    fn backend() -> ScalarBackend {
++        let mut backend = ScalarBackend::new();
++        backend.init(48000).unwrap();
++        backend.capture_stems();
++        backend
++    }
++    fn note(slot: u8, frequency: f32, duration: f32) -> OnsetEvent {
++        let mut n = OnsetEvent::new(0, frequency, 0.1, duration);
++        n.controls.orbit = slot;
++        n.controls.envelope = Envelope {
++            attack_secs: 0.001,
++            decay_secs: 0.0,
++            sustain: 1.0,
++            release_secs: 0.001,
++        };
++        n
++    }
++    fn read(map: &LaneAudioMap, slot: usize, frame: u64, ch: usize) -> f32 {
++        let at = DATA + ((slot * CAPACITY + (frame as usize & (CAPACITY - 1))) * 2 + ch) * 8;
++        let value = map.u64(at).load(Ordering::Acquire);
++        assert_eq!((value >> 32) as u32, frame as u32);
++        f32::from_bits(value as u32)
++    }
++    #[test]
++    fn stereo_stems_are_isolated_and_leases_only_mute_their_own_monitor() {
++        let map = LaneAudioMap::create().unwrap();
++        let mut backend = backend();
++        let mut first = note(0, 220.0, 0.1);
++        first.controls.pan = Some(-0.7);
++        let mut second = note(1, 660.0, 0.1);
++        second.controls.pan = Some(0.7);
++        backend.note(first);
++        backend.note(second);
++        let mut main = [0.0; 256];
++        backend.process_block(&mut main, 128);
++        let taps = backend.stems().unwrap();
++        let expected = main;
++        map.write(taps, 48000, 128, &mut main);
++        assert_eq!(main, expected);
++        for i in 0..256 {
++            assert_eq!(read(&map, 0, (i / 2) as u64, i % 2), taps.orbit(0, 128)[i]);
++            assert_eq!(read(&map, 1, (i / 2) as u64, i % 2), taps.orbit(1, 128)[i]);
++            assert_eq!(read(&map, 2, (i / 2) as u64, i % 2), 0.0);
++        }
++        assert_ne!(taps.orbit(0, 128), taps.orbit(1, 128));
++        map.u64(64)
++            .store(unsafe { GetTickCount64() }, Ordering::Release);
++        for _ in 0..4 {
++            let mut warmup = expected;
++            map.write(taps, 48000, 128, &mut warmup);
++        }
++        let mut monitored = expected;
++        map.write(taps, 48000, 128, &mut monitored);
++        for i in 0..256 {
++            assert!((monitored[i] - taps.orbit(1, 128)[i]).abs() < 1e-6);
++        }
++        map.u64(64).store(
++            unsafe { GetTickCount64() }.saturating_sub(1000),
++            Ordering::Release,
++        );
++        for _ in 0..4 {
++            let mut warmup = expected;
++            map.write(taps, 48000, 128, &mut warmup);
++        }
++        let mut restored = expected;
++        map.write(taps, 48000, 128, &mut restored);
++        assert_eq!(restored, expected);
++    }
++    #[test]
++    fn delay_tail_survives_note_end_and_wrap_is_tagged_without_callback_allocation() {
++        let map = LaneAudioMap::create().unwrap();
++        let mut backend = backend();
++        let mut n = note(0, 330.0, 0.008);
++        n.controls.delay = Some(DelayControls {
++            wet: 0.7,
++            time_secs: 0.05,
++            feedback: 0.5,
++        });
++        backend.note(n);
++        let mut tail = 0.0f32;
++        assert!(crate::tripwire::allocator_is_armed());
++        for block in 0..150 {
++            let mut main = [0.0; 256];
++            backend.process_block(&mut main, 128);
++            let taps = backend.stems().unwrap();
++            let before = crate::tripwire::Violations::capture();
++            crate::tripwire::audio_scope(|| map.write(taps, 48000, 128, &mut main));
++            assert_eq!(
++                crate::tripwire::Violations::capture().since(before),
++                crate::tripwire::Violations::default()
++            );
++            if block > 20 {
++                tail = tail.max(
++                    taps.orbit(0, 128)
++                        .iter()
++                        .copied()
++                        .map(f32::abs)
++                        .fold(0.0, f32::max),
++                );
++            }
++            assert!(taps.orbit(1, 128).iter().all(|s| *s == 0.0));
++        }
++        assert!(tail > 0.001, "delay outlives the 8 ms note");
++        assert_eq!(map.u64(24).load(Ordering::Acquire), 19200);
++        let tag = map.u64(DATA).load(Ordering::Acquire) >> 32;
++        assert_eq!(
++            tag, CAPACITY as u64,
++            "an overwritten old frame can be detected"
++        );
++        assert!(LaneAudioMap::create().unwrap().name() != map.name());
++    }
++}
+diff --git a/crates/audio/src/lib.rs b/crates/audio/src/lib.rs
+index 77f820b3d1cc599a1c5e38ddfa8815d4756dbfa2..cbafbf7aa50efa047dd69d3f67c6ccb972ae5155 100644
+--- a/crates/audio/src/lib.rs
++++ b/crates/audio/src/lib.rs
+@@ -28,6 +28,8 @@ pub mod insert;
+ pub mod limiter;
+ pub mod live;
+ pub mod live_control;
++#[cfg(all(windows, feature = "device-audio"))]
++pub mod lane_audio;
+ pub mod meter;
+ #[cfg(windows)]
+ pub mod mmcss;
+diff --git a/crates/audio/src/live.rs b/crates/audio/src/live.rs
+index 3e2c018468b04101b55400295fe92b2ad68bee52..82f7366653c09ef679cf16d93359b3928e4b89b6 100644
+--- a/crates/audio/src/live.rs
++++ b/crates/audio/src/live.rs
+@@ -279,6 +279,12 @@ impl LiveScalarBackend {
+         self.scalar.take_orbit_peaks()
+     }
+ 
++    #[cfg(all(windows, feature = "device-audio"))]
++    pub(crate) fn capture_stems(&mut self) { self.scalar.capture_stems(); }
++
++    #[cfg(all(windows, feature = "device-audio"))]
++    pub(crate) fn stems(&self) -> Option<&crate::scalar::Stems> { self.scalar.stems() }
++
+     #[cfg(feature = "device-audio")]
+     pub(crate) fn score_sources_active(&self) -> bool {
+         self.scalar.score_sources_active()
+diff --git a/crates/cli/Cargo.toml b/crates/cli/Cargo.toml
+index 8c59ec9156f3185079a00a45554f8b53575830b6..6b27bfad1f9c60f7b64fb0bc1908a723c231aaac 100644
+--- a/crates/cli/Cargo.toml
++++ b/crates/cli/Cargo.toml
+@@ -8,6 +8,7 @@ publish = false
+ description = "The rustel command: play, render, query and check scores, and open the terminal studio"
+ 
+ [features]
++music-link = ["rustel-runtime/music-link", "rustel-studio?/music-link"]
+ # The ordinary build is the complete product. `--no-default-features` builds
+ # the lean command line, and each feature below adds one capability back.
+ # `studio` adds the rustel-studio crate, and `remote-control` and `themes`
+diff --git a/crates/cli/src/live.rs b/crates/cli/src/live.rs
+index 9fdb8ed71363568d290267bcdb20301bab0e665d..5c419bf90274ec094153248501526273ff566b15 100644
+--- a/crates/cli/src/live.rs
++++ b/crates/cli/src/live.rs
+@@ -2943,11 +2943,15 @@ pub(super) fn play_live(
+         // capture cannot switch it off under each other.
+         {
+             let wanted = ui_audio_enabled || debug_capture.is_some();
++            #[cfg(feature = "music-link")]
++            let wanted = wanted || session.music_link_enabled();
+             if wanted != analysis_enabled {
+                 device.set_analysis_enabled(wanted);
+                 analysis_enabled = wanted;
+             }
+         }
++        #[cfg(feature = "music-link")]
++        session.publish_music_audio(&device);
+ 
+         // Hand this pass's serial writes to their port. Like MIDI the wire
+         // has no notion of "later", so the sender schedules them; unlike MIDI
+diff --git a/crates/core/src/context_keys.rs b/crates/core/src/context_keys.rs
+index 3a8de90b0bf10db807b43ec5c3e03eebf97da16e..8fb3a1d7701f7f4dc7c31c40aee47737571bc9f2 100644
+--- a/crates/core/src/context_keys.rs
++++ b/crates/core/src/context_keys.rs
+@@ -9,7 +9,7 @@ later version.
+ */
+ 
+ //! The context keys of a hap besides its locations: `scale`, `edoSize`,
+-//! `scaleDefinition`, `tags` and `logLine`.
++//! `scaleDefinition`, `tags` and `logLine`, plus private host lane provenance.
+ //!
+ //! Most haps carry none of them, so the keys sit behind one shared pointer
+ //! that a clone copies. A change copies them first.
+@@ -22,6 +22,8 @@ pub(crate) struct ContextKeys(Option<Arc<Keys>>);
+ 
+ #[derive(Clone, Debug, Default)]
+ pub(crate) struct Keys {
++    /// Host lane provenance. It never changes the score value or JS context shape.
++    pub(crate) lane: Option<Arc<str>>,
+     /// `hap.context.scale`: set by `.scale()`, read by `.scaleTranspose()`.
+     pub(crate) scale: Option<Arc<str>>,
+     /// `hap.context.edoSize`: set by xen's `.xen()`/`.edo()`, read by
+@@ -44,6 +46,7 @@ pub(crate) struct Keys {
+ }
+ 
+ static NO_KEYS: Keys = Keys {
++    lane: None,
+     scale: None,
+     edo_size: None,
+     scale_definition: None,
+@@ -54,7 +57,8 @@ static NO_KEYS: Keys = Keys {
+ impl ContextKeys {
+     /// `keys`, sharing nothing when no key is set.
+     pub(crate) fn of(keys: Keys) -> Self {
+-        let empty = keys.scale.is_none()
++        let empty = keys.lane.is_none()
++            && keys.scale.is_none()
+             && keys.edo_size.is_none()
+             && keys.scale_definition.is_none()
+             && keys.tags.is_none()
+@@ -87,6 +91,7 @@ impl ContextKeys {
+                     return first.clone();
+                 }
+                 Self(Some(Arc::new(Keys {
++                    lane: a.lane.clone().or_else(|| b.lane.clone()),
+                     scale: a.scale.clone().or_else(|| b.scale.clone()),
+                     edo_size: a.edo_size.or(b.edo_size),
+                     scale_definition: a
+@@ -104,7 +109,8 @@ impl ContextKeys {
+ impl Keys {
+     /// Whether every key `other` has is set here, so a merge keeps these.
+     fn covers(&self, other: &Self) -> bool {
+-        (self.scale.is_some() || other.scale.is_none())
++        (self.lane.is_some() || other.lane.is_none())
++            && (self.scale.is_some() || other.scale.is_none())
+             && (self.edo_size.is_some() || other.edo_size.is_none())
+             && (self.scale_definition.is_some() || other.scale_definition.is_none())
+             && (self.tags.is_some() || other.tags.is_none())
+@@ -133,6 +139,17 @@ mod tests {
+         assert!(empty.0.is_none(), "two empty sides share nothing");
+     }
+ 
++    #[test]
++    fn lane_only_keys_survive_merge_and_copy_on_write() {
++        let mut lane = ContextKeys::default();
++        lane.edit().lane = Some(Arc::from("#1"));
++        let mut merged = ContextKeys::merge(&with_scale("c:major"), &lane);
++        assert_eq!(merged.get().lane.as_deref(), Some("#1"));
++        merged.edit().lane = Some(Arc::from("#2"));
++        assert_eq!(lane.get().lane.as_deref(), Some("#1"));
++        assert_eq!(merged.get().scale.as_deref(), Some("c:major"));
++    }
++
+     #[test]
+     fn an_edit_does_not_change_a_hap_that_shares_the_keys() {
+         let first = with_scale("c:major");
+diff --git a/crates/core/src/lib.rs b/crates/core/src/lib.rs
+index 948b3c769847a5364eb6eed333235b997e9b616b..cdc2dce5e3b0f248caa3e2724f59cdecf071aac7 100644
+--- a/crates/core/src/lib.rs
++++ b/crates/core/src/lib.rs
+@@ -359,6 +359,17 @@ impl Hap {
+         self
+     }
+ 
++    /// Host lane provenance, separate from score control values and JS context keys.
++    pub fn lane_context(&self) -> Option<&str> {
++        self.keys.get().lane.as_deref()
++    }
++
++    /// Set host lane provenance while preserving locations and live bindings.
++    pub fn with_lane_context(mut self, lane: Arc<str>) -> Self {
++        self.keys.edit().lane = Some(lane);
++        self
++    }
++
+     /// `hap.context.scale`, exactly as `.scale()` tagged it.
+     pub fn scale_context(&self) -> Option<&str> {
+         self.keys.get().scale.as_deref()
+@@ -6260,6 +6271,7 @@ impl Pattern {
+                                 // which the runtime prints on the onset.
+                                 keys: ContextKeys::merge(
+                                     &ContextKeys::of(context_keys::Keys {
++                                        lane: None,
+                                         scale: context
+                                             .and_then(|context| context.get("scale"))
+                                             .and_then(|scale| match scale {
+@@ -7523,6 +7535,11 @@ impl Pattern {
+         Pattern::of(Node::MapHapsNative(self.clone(), Arc::new(f), spans))
+     }
+ 
++    /// Tag host provenance without rewriting values or dropping direct live controls.
++    pub fn with_lane_context(&self, lane: Arc<str>) -> Self {
++        self.map_haps_owned(move |hap| Some(hap.with_lane_context(lane.clone())))
++    }
++
+     /// Maps each hap and gives the closure ownership of it. Use this when the
+     /// change can move the value or context instead of cloning them. `f`
+     /// keeps the spans and reads none of them.
+@@ -9726,3 +9743,31 @@ mod stable_sort_tests {
+         assert_eq!(labels(&already), ["a1", "a2", "long", "b", "c"]);
+     }
+ }
++
++#[cfg(test)]
++mod lane_provenance_tests {
++    use super::*;
++
++    #[test]
++    fn host_lane_tag_preserves_score_value_locations_and_live_bindings() {
++        let pattern = pure(Value::F64(60.0))
++            .map_haps_owned(|mut hap| {
++                hap.live_controls = [11, 22, 33, 44];
++                Some(
++                    hap.with_context(vec![(4, 8)])
++                        .with_scale_context(Arc::from("c:major")),
++                )
++            })
++            .with_lane_context(Arc::from("#7"))
++            .fast(Fraction::from(2));
++        let haps = pattern.query_arc(Fraction::ZERO, Fraction::ONE);
++        assert_eq!(haps.len(), 2);
++        for hap in haps {
++            assert_eq!(hap.value, Value::F64(60.0));
++            assert_eq!(hap.context.to_vec(), vec![(4, 8)]);
++            assert_eq!(hap.live_controls, [11, 22, 33, 44]);
++            assert_eq!(hap.scale_context(), Some("c:major"));
++            assert_eq!(hap.lane_context(), Some("#7"));
++        }
++    }
++}
+diff --git a/crates/jsruntime/src/install/repl/lanes.rs b/crates/jsruntime/src/install/repl/lanes.rs
+index 27e5522c4256835816de250750eb3de75dede787..d931dea072a6150f1c7d2b0b74e013760573c570 100644
+--- a/crates/jsruntime/src/install/repl/lanes.rs
++++ b/crates/jsruntime/src/install/repl/lanes.rs
+@@ -138,14 +138,18 @@ fn hush<'js>(ctx: Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
+     state(&ctx)?.get(SILENCE)
+ }
+ 
+-/// A lane with its tag on each plugin note. Only a plugin note carries the
+-/// tag. Each note keeps its slider bindings.
++/// Preserve plugin routing tags and optionally attach typed host lane provenance.
++/// Ordinary score values stay untouched and each note keeps its slider bindings.
+ fn tagged<'js>(
+     ctx: &Ctx<'js>,
+     pattern: &rquickjs::Value<'js>,
+     tag: String,
+ ) -> rquickjs::Result<rquickjs::Value<'js>> {
+     let (pattern, sidecar) = reify_bridged(ctx, pattern)?;
++    // The optional external music bridge needs provenance for ordinary notes
++    // too, without putting host metadata in score control values.
++    let music_link = std::env::var("RUSTEL_MUSIC_LINK").is_ok_and(|value| value == "1");
++    let routing_tag = tag.clone();
+     let pattern = pattern.fmap_keeping_live(move |value| {
+         let plugin = |controls: &rustel_core::OrderedMap| {
+             controls.contains_key("vst") || controls.contains_key("vsti")
+@@ -162,9 +166,14 @@ fn tagged<'js>(
+         if !plugin(&controls) {
+             return None;
+         }
+-        controls.insert("__rustel_lane".into(), Value::Str(tag.clone()));
++        controls.insert("__rustel_lane".into(), Value::Str(routing_tag.clone()));
+         Some(Value::Object(controls))
+     });
++    let pattern = if music_link {
++        pattern.with_lane_context(std::sync::Arc::from(tag))
++    } else {
++        pattern
++    };
+     Ok(derive_wrapper(ctx.clone(), pattern, &[sidecar])?.into_value())
+ }
+ 
+diff --git a/crates/runtime/Cargo.toml b/crates/runtime/Cargo.toml
+index 67c656b0899d493bbd6509435a13e184bde6f25a..a4e0b1257241f3bf2b85e2f64a8e1744cbdc1215 100644
+--- a/crates/runtime/Cargo.toml
++++ b/crates/runtime/Cargo.toml
+@@ -10,6 +10,7 @@ description = "Native host library behind the rustel command and studio: Session
+ # Session API with optional CPAL playback.
+ 
+ [features]
++music-link = ["dep:music-link", "vst"]
+ # The ordinary build is the complete product. A library host opts out
+ # explicitly with `--no-default-features` and adds back only the capabilities
+ # it needs. Internal benchmark instrumentation remains opt-in even for the
+@@ -111,6 +112,7 @@ name = "e2e"
+ path = "tests/e2e.rs"
+ 
+ [dependencies]
++music-link = { path = "../../../music-link", optional = true }
+ serde = { version = "1", features = ["derive"] }
+ # `preserve_order` keeps `serde_json::Map` in document order, which a note
+ # bank's closest-key tie-break depends on (see `Bank::Notes`).
+diff --git a/crates/runtime/examples/music_link.rs b/crates/runtime/examples/music_link.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..893400c193933b575b37f78053feefa767d7ae76
+--- /dev/null
++++ b/crates/runtime/examples/music_link.rs
+@@ -0,0 +1,26 @@
++//! Hardware-free bridge probe. Set RUSTEL_MUSIC_LINK=1 and start music-hub.
++//! Events are scheduled and visualized, but no audio device is opened.
++use rustel_runtime::{QUERY_WORKER_STACK_BYTES, Session};
++use std::time::{Duration, Instant};
++
++fn main() -> Result<(), String> {
++    std::thread::Builder::new()
++        .stack_size(QUERY_WORKER_STACK_BYTES)
++        .spawn(|| {
++            let mut session = Session::new().map_err(|e| e.to_string())?;
++            session
++                .evaluate("$: note(\"c3 e3 g3 b3\").s(\"sawtooth\")\n$: s(\"bd*4\")")
++                .map_err(|e| e.to_string())?;
++            let start = Instant::now();
++            while start.elapsed() < Duration::from_secs(30) {
++                session
++                    .schedule_at(start.elapsed().as_secs_f64())
++                    .map_err(|e| e.to_string())?;
++                std::thread::sleep(Duration::from_millis(10));
++            }
++            Ok(())
++        })
++        .map_err(|e| e.to_string())?
++        .join()
++        .map_err(|_| "worker panicked".to_owned())?
++}
+diff --git a/crates/runtime/src/session.rs b/crates/runtime/src/session.rs
+index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2fb8640869 100644
+--- a/crates/runtime/src/session.rs
++++ b/crates/runtime/src/session.rs
+@@ -9,6 +9,8 @@
+ mod assets;
+ mod diagnostics;
+ mod installation;
++#[cfg(feature = "music-link")]
++mod music;
+ mod output;
+ mod query;
+ mod scheduling;
+@@ -758,6 +760,8 @@ fn query_failure_is_news(
+ 
+ /// One-process headless runtime: one QuickJS heap, one scheduler transport.
+ pub struct Session {
++    #[cfg(feature = "music-link")]
++    music: music::MusicState,
+     js: JsRuntime,
+     panic_guard_active: bool,
+     panic_poisoned: bool,
+@@ -1167,6 +1171,8 @@ impl Session {
+         #[cfg(feature = "vst")]
+         let slider_links = crate::vst::slider_links(&chains);
+         Ok(Self {
++            #[cfg(feature = "music-link")]
++            music: music::MusicState::default(),
+             js,
+             panic_guard_active: false,
+             panic_poisoned: false,
+diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..56f73e83354093052170b87a7659e37eca473196
+--- /dev/null
++++ b/crates/runtime/src/session/music.rs
+@@ -0,0 +1,419 @@
++//! Opt-in producer-side telemetry and pointwise transpose overlays.
++//! No extra pattern queries and no socket work on the Session thread.
++use super::*;
++use music_link::{Event, Link, Response, Snapshot};
++use rustel_core::Value;
++use std::borrow::Cow;
++use std::collections::HashMap;
++
++pub(super) struct MusicState {
++    link: Option<Link>,
++    snapshot: Snapshot,
++    offsets: HashMap<String, i32>,
++    lane_slots: std::collections::BTreeMap<String, u8>,
++    last_publish: Instant,
++    #[cfg(feature = "device-audio")]
++    audio: Option<MusicAudio>,
++}
++
++impl Default for MusicState {
++    fn default() -> Self {
++        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
++        let enabled = std::env::var("RUSTEL_MUSIC_LINK").is_ok_and(|v| v == "1");
++        Self {
++            link: enabled.then(|| Link::connect().ok()).flatten(),
++            snapshot: Snapshot {
++                version: 1,
++                session: format!(
++                    "rustel-{}-{}-{}",
++                    std::process::id(),
++                    std::time::SystemTime::now()
++                        .duration_since(std::time::UNIX_EPOCH)
++                        .unwrap_or_default()
++                        .as_millis(),
++                    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
++                ),
++                ..Default::default()
++            },
++            offsets: HashMap::new(),
++            lane_slots: Default::default(),
++            last_publish: Instant::now(),
++            #[cfg(feature = "device-audio")]
++            audio: None,
++        }
++    }
++}
++
++fn controls(value: &Value) -> Option<Cow<'_, rustel_core::OrderedMap>> {
++    match value {
++        Value::Object(controls) => Some(Cow::Borrowed(controls)),
++        Value::JsValue(_) => match rustel_core::materialize_js_value(value) {
++            Value::Object(controls) => Some(Cow::Owned(controls)),
++            _ => None,
++        },
++        _ => None,
++    }
++}
++
++fn reserve_lane_slot(slots: &mut std::collections::BTreeMap<String,u8>, lane: &str) -> Option<u8> {
++    if let Some(&slot) = slots.get(lane) { return Some(slot); }
++    if slots.len() >= 15 { return None; }
++    let slot = slots.len() as u8;
++    slots.insert(lane.to_owned(),slot);
++    Some(slot)
++}
++
++fn pitch(value: &Value) -> Option<f64> {
++    match value {
++        Value::Str(note) => rustel_core::util::note_to_midi(note, 3).ok(),
++        _ => value.as_f64(),
++    }
++}
++
++fn transpose(value: &mut Value, semitones: i32) -> Option<f64> {
++    let controls = controls(value)?;
++    let note = controls.get("note").and_then(pitch);
++    let frequency = controls
++        .get("freq")
++        .and_then(Value::as_f64)
++        .filter(|f| *f > 0.0 && f.is_finite());
++    let original = frequency.map(|f| 69.0 + 12.0 * (f / 440.0).log2()).or(note);
++    if semitones != 0 && original.is_some() {
++        let mut controls = controls.into_owned();
++        if let Some(note) = note {
++            controls.insert("note".into(), Value::F64(note + f64::from(semitones)));
++        }
++        if let Some(freq) = frequency {
++            controls.insert(
++                "freq".into(),
++                Value::F64(freq * 2.0_f64.powf(f64::from(semitones) / 12.0)),
++            );
++        }
++        *value = Value::Object(controls);
++    }
++    original
++}
++
++impl Session {
++    pub fn music_link_enabled(&self) -> bool {
++        self.music.link.is_some()
++    }
++    #[cfg(feature = "device-audio")]
++    pub fn publish_music_audio(&mut self, device: &rustel_audio::LiveScalarDevice) {
++        #[cfg(windows)]
++        { self.music.snapshot.lane_audio = device.lane_audio_mapping().map(|mapping| music_link::LaneAudioStream {
++            mapping: mapping.to_owned(), lanes: self.music.lane_slots.clone(),
++        }); }
++        let Some(link) = self.music.link.as_ref() else {
++            return;
++        };
++        // Arming copies only into the existing allocation-free callback tap.
++        device.set_analysis_enabled(true);
++        let state = self.music.audio.get_or_insert_with(MusicAudio::new);
++        if Instant::now() < state.next {
++            return;
++        }
++        state.next = Instant::now() + Duration::from_millis(33);
++        let Some(snapshot) = device.copy_analysis_window(&mut state.samples) else {
++            return;
++        };
++        let identity = (snapshot.stream_id, snapshot.epoch, snapshot.end_frame);
++        if state.last == Some(identity) {
++            return;
++        }
++        state.last = Some(identity);
++        let analysis = state.analyzer.analyze(&state.samples[..]);
++        let mut sides = [(0.0, 0.0); crate::ui_analysis::UI_SIDES_SAMPLES];
++        let stereo = if device.copy_analysis_sides(&mut sides) {
++            sides.into_iter().map(|(l, r)| [l, r]).collect()
++        } else {
++            Vec::new()
++        };
++        state.sequence = state.sequence.saturating_add(1);
++        link.publish_audio(music_link::AudioFrame {
++            version: 1,
++            session: self.music.snapshot.session.clone(),
++            generation: device.generation(),
++            sequence: state.sequence,
++            stream_id: snapshot.stream_id,
++            epoch: snapshot.epoch,
++            end_frame: snapshot.end_frame,
++            sample_rate: snapshot.sample_rate,
++            device_time: snapshot.end_frame as f64 / f64::from(snapshot.sample_rate.max(1)),
++            scope: analysis.scope.to_vec(),
++            spectrum: analysis.spectrum.to_vec(),
++            sides: stereo,
++        });
++    }
++    pub(super) fn music_events(
++        &mut self,
++        now: f64,
++        mut events: Vec<rustel_scheduler::Event>,
++    ) -> Vec<rustel_scheduler::Event> {
++        if self.music.link.is_none() {
++            return events;
++        }
++        let generation = self.generation();
++        let cycle = self.cycle_at_time(now);
++        let cps = self.cps();
++        let lanes = self.lanes.music_lanes();
++        let source = self.active_source().unwrap_or_default().to_owned();
++        let state = &mut self.music;
++        state.snapshot.source = source;
++        if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
++            state.snapshot.events.clear();
++        }
++        state.snapshot.generation = generation;
++        state.snapshot.cycle = cycle;
++        state.snapshot.cps = cps;
++        state.snapshot.lanes = lanes;
++        let exporting = cfg!(all(windows, feature = "device-audio"))
++            && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
++        if exporting {
++            for lane in &state.snapshot.lanes {
++                reserve_lane_slot(&mut state.lane_slots, &lane.id);
++            }
++        }
++        state
++            .offsets
++            .retain(|id, _| state.snapshot.lanes.iter().any(|lane| &lane.id == id));
++        let link = state.link.as_ref().expect("checked link");
++        for command in link.commands() {
++            // Other sessions share the topic and must not answer this request.
++            if command.session != state.snapshot.session { continue; }
++            let result = command.validate(&state.snapshot);
++            if result.is_ok() {
++                match command.solo {
++                    Some(true) => state.snapshot.solo_lane = Some(command.lane.clone()),
++                    Some(false) => {
++                        if state.snapshot.solo_lane.as_deref() == Some(&command.lane) { state.snapshot.solo_lane = None; }
++                    }
++                    None => { state.offsets.insert(command.lane.clone(), command.semitones); }
++                }
++            }
++            link.respond(Response {
++                request: command.request,
++                accepted: result.is_ok(),
++                message: result.err().unwrap_or("applies to newly scheduled events").into(),
++            });
++        }
++        if state
++            .snapshot
++            .solo_lane
++            .as_ref()
++            .is_some_and(|id| !state.snapshot.lanes.iter().any(|l| &l.id == id))
++        {
++            state.snapshot.solo_lane = None;
++        }
++        for lane in &mut state.snapshot.lanes {
++            lane.transpose = state.offsets.get(&lane.id).copied().unwrap_or(0);
++        }
++        state
++            .snapshot
++            .events
++            .retain(|event| event.cycle + event.duration >= cycle - 1.0);
++        for event in &mut events {
++            if exporting {
++                let lane = event.telemetry.as_ref().and_then(|o| o.lane.as_deref());
++                let slot = lane.and_then(|lane| state.lane_slots.get(lane)).copied().unwrap_or(15);
++                if let Some(value) = controls(&event.value) {
++                    let mut value = value.into_owned();
++                    value.insert("orbit".into(), Value::F64(f64::from(slot)));
++                    event.value = Value::Object(value);
++                }
++            }
++            let Some(observation) = &event.telemetry else {
++                continue;
++            };
++            let Some(lane) = observation.lane.as_deref() else {
++                continue;
++            };
++            let offset = state.offsets.get(lane).copied().unwrap_or(0);
++            let original = transpose(&mut event.value, offset);
++            let Some(controls) = controls(&event.value) else {
++                continue;
++            };
++            state.snapshot.events.push(Event {
++                context: observation.context.clone(),
++                controls: ["gain", "pan", "cutoff", "resonance"]
++                    .into_iter()
++                    .filter_map(|key| {
++                        controls
++                            .get(key)
++                            .and_then(Value::as_f64)
++                            .filter(|v| v.is_finite())
++                            .map(|v| (key.to_owned(), v))
++                    })
++                    .collect(),
++                id: observation.onset_id,
++                lane: lane.to_owned(),
++                cycle: observation.whole_begin.to_f64(),
++                duration: observation.duration.to_f64(),
++                original_pitch: original,
++                pitch: original.map(|p| p + f64::from(offset)),
++                sound: match controls.get("s") {
++                    Some(Value::Str(sound)) => sound.clone(),
++                    _ => String::new(),
++                },
++                gain: controls.get("gain").and_then(Value::as_f64).unwrap_or(0.8),
++            });
++        }
++        audition(&mut events, state.snapshot.solo_lane.as_deref());
++        if state.snapshot.events.len() > 2048 {
++            let discard = state.snapshot.events.len() - 2048;
++            state.snapshot.events.drain(..discard);
++        }
++        if state.last_publish.elapsed() >= Duration::from_millis(50) {
++            link.publish(state.snapshot.clone());
++            state.last_publish = Instant::now();
++        }
++        events
++    }
++}
++
++#[cfg(feature = "device-audio")]
++struct MusicAudio {
++    analyzer: crate::ui_analysis::UiAudioAnalyzer,
++    samples: Box<[f32; rustel_audio::LIVE_ANALYSIS_WINDOW_SAMPLES]>,
++    next: Instant,
++    sequence: u64,
++    last: Option<(u64, u64, u64)>,
++}
++#[cfg(feature = "device-audio")]
++impl MusicAudio {
++    fn new() -> Self {
++        Self {
++            analyzer: crate::ui_analysis::UiAudioAnalyzer::new(),
++            samples: Box::new([0.0; rustel_audio::LIVE_ANALYSIS_WINDOW_SAMPLES]),
++            next: Instant::now(),
++            sequence: 0,
++            last: None,
++        }
++    }
++}
++
++fn audition(events: &mut Vec<rustel_scheduler::Event>, solo: Option<&str>) {
++    if let Some(lane) = solo {
++        events
++            .retain(|event| event.telemetry.as_ref().and_then(|t| t.lane.as_deref()) == Some(lane));
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn exported_slots_survive_lane_removal_and_refuse_to_recycle_tails() {
++        let mut slots=std::collections::BTreeMap::new();
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#0"),Some(0));
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#1"),Some(1));
++        // A later score has only #1 and #2. The absent #0 keeps its tail slot.
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#1"),Some(1));
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#2"),Some(2));
++        for i in 3..15 { assert_eq!(super::reserve_lane_slot(&mut slots,&format!("#{i}")),Some(i)); }
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#15"),None);
++        assert_eq!(super::reserve_lane_slot(&mut slots,"#0"),Some(0));
++    }
++    use super::*;
++    #[test]
++    fn solo_filters_audio_events_and_restores_all_on_release() {
++        let event = |id: u64, lane: &str| {
++            let hap = rustel_core::Hap::new(
++                Some(rustel_core::TimeSpan::new(Fraction::ZERO, Fraction::ONE)),
++                rustel_core::TimeSpan::new(Fraction::ZERO, Fraction::ONE),
++                Value::F64(60.0),
++            )
++            .with_lane_context(std::sync::Arc::from(lane));
++            rustel_scheduler::Event {
++                telemetry: rustel_scheduler::ScheduleTraceEvent::from_hap(&hap, 1, id, 0.0)
++                    .map(Box::new),
++                onset_id: id,
++                generation: 1,
++                whole_begin: Fraction::ZERO,
++                whole_end: Fraction::ONE,
++                duration: Fraction::ONE,
++                target_time: 0.0,
++                cps: None,
++                value: hap.value,
++                live_controls: [0; 4],
++                ui_visuals: 0,
++                log_line: None,
++            }
++        };
++        let original = vec![event(1, "#0"), event(2, "#1"), event(3, "#2")];
++        let mut selected = original.clone();
++        audition(&mut selected, Some("#1"));
++        assert_eq!(selected.len(), 1);
++        assert_eq!(selected[0].onset_id, 2);
++        let mut moved = original.clone();
++        audition(&mut moved, Some("#2"));
++        assert_eq!(moved.len(), 1);
++        assert_eq!(moved[0].onset_id, 3);
++        let mut restored = original;
++        audition(&mut restored, None);
++        assert_eq!(restored.len(), 3);
++    }
++    #[test]
++    fn lane_sources_keep_complete_multiline_chains() {
++        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
++            let mut session = Session::new().expect("session");
++            session.evaluate("$: note(\"c3 e3\").s(\"sine\")\n  .every(4, x => x.rev())\n$: note(\"g2\").slow(2)").expect("score");
++            let lanes = session.lanes.music_lanes();
++            assert_eq!(lanes.len(), 2);
++            assert!(lanes[0].source.starts_with("$: note(\"c3 e3\")"));
++            assert!(lanes[0].source.contains(".every(4, x => x.rev())"));
++            assert!(lanes[1].source.contains(".slow(2)"));
++            assert_ne!(lanes[0].id, lanes[1].id);
++        }).expect("worker").join().expect("source test");
++    }
++    #[test]
++    fn observation_is_read_only_and_preserves_user_metadata() {
++        let mut value = Value::object([
++            ("note".into(), Value::Str("c3".into())),
++            ("__rustel_context".into(), Value::Str("score-owned".into())),
++            (
++                "custom".into(),
++                Value::List(vec![Value::F64(1.0), Value::Bool(true)]),
++            ),
++        ]);
++        let before = value.clone();
++        assert!(transpose(&mut value, 0).is_some());
++        assert_eq!(value, before);
++        transpose(&mut value, 7);
++        let controls = controls(&value).expect("controls");
++        assert_eq!(
++            controls.get("__rustel_context").and_then(Value::as_str),
++            Some("score-owned")
++        );
++    }
++
++    #[test]
++    fn transpose_preserves_other_controls_and_unpitched_samples() {
++        let mut value = Value::object([
++            ("note".into(), Value::Str("c3".into())),
++            ("gain".into(), Value::F64(0.3)),
++            ("s".into(), Value::Str("sawtooth".into())),
++        ]);
++        let original = transpose(&mut value, 7).expect("pitch");
++        let Value::Object(controls) = &value else {
++            panic!("controls");
++        };
++        assert_eq!(
++            controls.get("note").and_then(Value::as_f64),
++            Some(original + 7.0)
++        );
++        assert_eq!(controls.get("gain").and_then(Value::as_f64), Some(0.3));
++        let mut drum = Value::object([("s".into(), Value::Str("bd".into()))]);
++        let unchanged = drum.clone();
++        assert!(transpose(&mut drum, 7).is_none());
++        assert_eq!(drum, unchanged);
++        let mut explicit = Value::object([
++            ("note".into(), Value::Str("c3".into())),
++            ("freq".into(), Value::F64(440.0)),
++        ]);
++        assert_eq!(transpose(&mut explicit, 12), Some(69.0));
++        let Value::Object(controls) = explicit else {
++            panic!("controls");
++        };
++        assert_eq!(controls.get("freq").and_then(Value::as_f64), Some(880.0));
++    }
++}
+diff --git a/crates/runtime/src/session/scheduling.rs b/crates/runtime/src/session/scheduling.rs
+index 7fccbdaac078ced6a782c9b6658985c9f8167ab9..ee11a6f14c1c61bf038932062f94b6e1f613d761 100644
+--- a/crates/runtime/src/session/scheduling.rs
++++ b/crates/runtime/src/session/scheduling.rs
+@@ -677,6 +677,8 @@ impl Session {
+         max_cover: f64,
+         profile: Option<&mut rustel_scheduler::SchedulerTickProfile>,
+     ) -> Result<ScheduledWindow, ScheduleAttemptError> {
++        #[cfg(feature = "music-link")]
++        self.scheduler.set_telemetry_enabled(self.music_link_enabled());
+         self.with_panic_recovery(now, |session| {
+             Ok(
+                 session.schedule_through_with_js_budget_and_tail_with_cover_inner(
+@@ -817,6 +819,8 @@ impl Session {
+         let tail_started = Instant::now();
+         let cps = self.config.cps;
+         let drained = self.scheduler.drain_through(&clock, through);
++        #[cfg(feature = "music-link")]
++        let drained = self.music_events(now, drained);
+         let events = drained
+             .into_iter()
+             .map(|event| OnsetEventJson {
+diff --git a/crates/runtime/src/ui_events.rs b/crates/runtime/src/ui_events.rs
+index ce2c210447c5758f25d736be69f1c2ec7a63e1e5..5f42e84c3895b78eec20849b51a849e0b15a7b33 100644
+--- a/crates/runtime/src/ui_events.rs
++++ b/crates/runtime/src/ui_events.rs
+@@ -2259,6 +2259,7 @@ mod tests {
+ 
+     fn trace() -> ScheduleTraceEvent {
+         ScheduleTraceEvent {
++            lane: None,
+             onset_id: 9,
+             generation: 3,
+             whole_begin: Fraction::new(1, 3),
+diff --git a/crates/runtime/src/vst/lanes.rs b/crates/runtime/src/vst/lanes.rs
+index 5373be754eb502ebebad38fecc835cd0ac285374..4413d8b8417ba535a7e27771d36de937e6ffe3bd 100644
+--- a/crates/runtime/src/vst/lanes.rs
++++ b/crates/runtime/src/vst/lanes.rs
+@@ -152,6 +152,24 @@ pub(crate) struct LaneTable {
+ }
+ 
+ impl LaneTable {
++    #[cfg(feature = "music-link")]
++    pub(crate) fn music_lanes(&self) -> Vec<music_link::Lane> {
++        self.playing
++            .lanes
++            .iter()
++            .map(|lane| music_link::Lane {
++                id: format!("#{}", lane.number),
++                label: lane.label.clone(),
++                source: if lane.label.is_empty() {
++                    lane.body.clone()
++                } else {
++                    format!("{}: {}", lane.label, lane.body)
++                },
++                line: lane.line,
++                transpose: 0,
++            })
++            .collect()
++    }
+     /// Reads the lanes of a score text of the reading document before its
+     /// evaluation: see [`Self::set_reading`]. Gives the lane number of each
+     /// labeled statement, in text order, for
+diff --git a/crates/runtime/tests/music_telemetry.rs b/crates/runtime/tests/music_telemetry.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..a01b62465d075303732f527c3e6bdc8a178ffb82
+--- /dev/null
++++ b/crates/runtime/tests/music_telemetry.rs
+@@ -0,0 +1,48 @@
++//! The bridge must not put observation metadata in score control objects.
++#![cfg(feature = "music-link")]
++
++#[test]
++fn bridge_keeps_score_controls_clean() {
++    const CHILD: &str = "RUSTEL_TELEMETRY_TEST_CHILD";
++    if std::env::var_os(CHILD).is_none() {
++        let result = std::process::Command::new(std::env::current_exe().expect("test executable"))
++            .args([
++                "--exact",
++                "bridge_keeps_score_controls_clean",
++                "--nocapture",
++            ])
++            .env(CHILD, "1")
++            .env("RUSTEL_MUSIC_LINK", "1")
++            .output()
++            .expect("isolated bridge-enabled test");
++        assert!(
++            result.status.success(),
++            "{}\n{}",
++            String::from_utf8_lossy(&result.stdout),
++            String::from_utf8_lossy(&result.stderr)
++        );
++        return;
++    }
++    std::thread::Builder::new().stack_size(rustel_runtime::QUERY_WORKER_STACK_BYTES).spawn(|| {
++        let source = "// Unicode prefix: 🎵\n$: note(\"c3 e3\").s(\"sine\").pan(sine.range(-0.5, 0.5))\n$: stack(note(\"g3\"), note(\"b3\")).s(\"triangle\")\nall(x => x.fast(2))";
++        let mut session = rustel_runtime::Session::new().expect("session");
++        assert!(session.music_link_enabled());
++        session.set_schedule_trace_enabled(true);
++        session.evaluate(source).expect("score");
++        let events = session.schedule_at(0.0).expect("scheduled");
++        assert!(!events.is_empty());
++        for event in &events {
++            let rustel_runtime::ValueJson::Raw(value) = &event.value else { panic!("controls"); };
++            let object = value.as_object().expect("control object");
++            assert!(!object.contains_key("__rustel_lane"));
++            assert!(!object.contains_key("__rustel_context"));
++        }
++        let traces = session.take_schedule_trace_events();
++        assert!(!traces.is_empty(), "bridge consumed editor observations");
++        let lanes: std::collections::HashSet<_> = traces.iter().filter_map(|t|t.lane.as_deref()).collect();
++        assert_eq!(lanes.len(), 2);
++        let tokens: Vec<_> = traces.iter().flat_map(|t|t.context.iter()).filter_map(|&(a,b)|source.get(a..b)).collect();
++        assert!(tokens.contains(&"c3"));
++        assert!(tokens.contains(&"g3"));
++    }).expect("worker").join().expect("test worker");
++}
+diff --git a/crates/scheduler/src/lib.rs b/crates/scheduler/src/lib.rs
+index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a401643c560 100644
+--- a/crates/scheduler/src/lib.rs
++++ b/crates/scheduler/src/lib.rs
+@@ -36,6 +36,8 @@ pub type Generation = u64;
+ /// could pull the audio thread into a heap it must not touch.
+ #[derive(Clone, Debug, PartialEq)]
+ pub struct Event {
++    /// Optional accepted-onset observation, independent of the editor trace queue.
++    pub telemetry: Option<Box<ScheduleTraceEvent>>,
+     /// Unique for the scheduler's lifetime. Duplicate delivery is detectable.
+     pub onset_id: u64,
+     pub generation: Generation,
+@@ -76,6 +78,8 @@ pub struct Event {
+ /// locations use the same byte-offset pairs carried by [`Hap::context`].
+ #[derive(Clone, Debug, PartialEq)]
+ pub struct ScheduleTraceEvent {
++    /// Host provenance; absent for untagged patterns.
++    pub lane: Option<Arc<str>>,
+     pub onset_id: u64,
+     pub generation: Generation,
+     pub whole_begin: Fraction,
+@@ -238,6 +242,7 @@ impl ScheduleTraceEvent {
+         let whole = hap.whole?;
+         let value_show = hap.value.show();
+         Some(Self {
++            lane: hap.lane_context().map(Arc::from),
+             onset_id,
+             generation,
+             whole_begin: whole.begin,
+@@ -574,6 +579,7 @@ pub struct Scheduler {
+     last_fill_time: f64,
+     /// Optional observation channel for editor highlighting and visualizers.
+     /// The disabled hot path is a single false branch after queue acceptance.
++    telemetry_enabled: bool,
+     trace_enabled: bool,
+     trace_events: Vec<ScheduleTraceEvent>,
+     trace_events_dropped: u64,
+@@ -751,6 +757,7 @@ impl Scheduler {
+             pass_ordinals: std::collections::HashMap::new(),
+             stale_limit: 1.0,
+             last_fill_time: 0.0,
++            telemetry_enabled: false,
+             trace_enabled: false,
+             trace_events: Vec::new(),
+             trace_events_dropped: 0,
+@@ -785,6 +792,12 @@ impl Scheduler {
+         self.trace_enabled
+     }
+ 
++    /// Attach bounded typed observations without consuming the editor trace queue.
++    /// Disabled events own no telemetry allocation.
++    pub fn set_telemetry_enabled(&mut self, enabled: bool) {
++        self.telemetry_enabled = enabled;
++    }
++
+     /// Take all unread trace events in scheduler acceptance order.
+     ///
+     /// A stopped transport has no live schedule, so stale observations are
+@@ -2167,7 +2180,9 @@ impl Scheduler {
+             // Trace reads the complete hap, so capture it before transferring
+             // the already-owned value into the scheduler event. A full or
+             // disabled trace queue keeps the same short-circuit behavior.
+-            let trace = if self.trace_enabled && self.trace_events.len() < MAX_QUEUED_TRACE_EVENTS {
++            let trace = if self.telemetry_enabled
++                || (self.trace_enabled && self.trace_events.len() < MAX_QUEUED_TRACE_EVENTS)
++            {
+                 ScheduleTraceEvent::from_hap(&hap, generation, onset_id, target_time)
+             } else {
+                 None
+@@ -2175,6 +2190,11 @@ impl Scheduler {
+             let ui_visuals = hap.ui_visuals_context();
+             let log_line = hap.log_line().map(std::sync::Arc::from);
+             self.queue.push(Event {
++                telemetry: if self.telemetry_enabled {
++                    trace.as_ref().map(|trace| Box::new(trace.clone()))
++                } else {
++                    None
++                },
+                 onset_id,
+                 generation,
+                 whole_begin: whole.begin,
+@@ -2196,7 +2216,9 @@ impl Scheduler {
+             // these IDs with its downstream audio-ring pushes before exposing
+             // them as device-submitted UI events.
+             if self.trace_enabled {
+-                if let Some(trace) = trace {
++                if let Some(trace) =
++                    trace.filter(|_| self.trace_events.len() < MAX_QUEUED_TRACE_EVENTS)
++                {
+                     self.trace_events.push(trace);
+                 } else {
+                     self.trace_events_dropped = self.trace_events_dropped.saturating_add(1);
+@@ -2542,6 +2564,34 @@ mod tests {
+         assert!(scheduler.queued() > 0, "tracing changed audio scheduling");
+     }
+ 
++    #[test]
++    fn telemetry_is_opt_in_and_does_not_consume_editor_traces() {
++        for enabled in [false, true] {
++            let transport = Arc::new(Transport::default());
++            let mut scheduler = Scheduler::new(transport, 1.0, 0.5);
++            let clock = VirtualClock::new(0.0);
++            scheduler.set_telemetry_enabled(enabled);
++            scheduler.set_trace_enabled(true);
++            scheduler.set_pattern(
++                atom("bd")
++                    .with_lane_context(Arc::from("#2"))
++                    .map_haps_native(|hap| Some(hap.clone().with_context(vec![(4, 8), (13, 21)]))),
++                clock.now(),
++            );
++            scheduler.tick(&clock);
++            let events = scheduler.drain_through(&clock, 1.0);
++            assert_eq!(events.len(), 1);
++            assert_eq!(events[0].telemetry.is_some(), enabled);
++            let traces = scheduler.take_trace_events();
++            assert_eq!(traces.len(), 1);
++            assert_eq!(traces[0].context, vec![(4, 8), (13, 21)]);
++            assert_eq!(traces[0].lane.as_deref(), Some("#2"));
++            if let Some(telemetry) = &events[0].telemetry {
++                assert_eq!(**telemetry, traces[0]);
++            }
++        }
++    }
++
+     #[test]
+     fn schedule_trace_copies_exact_accepted_hap_data() {
+         let transport = Arc::new(Transport::default());
+@@ -2560,6 +2610,7 @@ mod tests {
+         assert_eq!(
+             traces[0],
+             ScheduleTraceEvent {
++                lane: None,
+                 onset_id: 0,
+                 generation,
+                 whole_begin: Fraction::ZERO,
+@@ -2633,6 +2684,7 @@ mod tests {
+                 value: Value::Str("late".into()),
+                 live_controls: [0; 4],
+                 ui_visuals: 0,
++                telemetry: None,
+                 log_line: None,
+             },
+             Event {
+@@ -2646,6 +2698,7 @@ mod tests {
+                 value: Value::Str("early".into()),
+                 live_controls: [0; 4],
+                 ui_visuals: 0,
++                telemetry: None,
+                 log_line: None,
+             },
+         ]);
+@@ -2669,6 +2722,7 @@ mod tests {
+             value: Value::Str("nan".into()),
+             live_controls: [0; 4],
+             ui_visuals: 0,
++            telemetry: None,
+             log_line: None,
+         });
+         synthetic.sort_by(|a, b| a.target_time.total_cmp(&b.target_time));
+@@ -2724,6 +2778,7 @@ mod tests {
+             ]),
+             live_controls: [0; 4],
+             ui_visuals: 0,
++            telemetry: None,
+             log_line: None,
+         };
+         scheduler.queue.extend([
+@@ -2788,6 +2843,7 @@ mod tests {
+         let mut scheduler = Scheduler::new(transport, 1.0, 0.5);
+         let clock = VirtualClock::new(0.0);
+         scheduler.set_trace_enabled(true);
++        scheduler.set_telemetry_enabled(true);
+         let overflow = 7;
+         scheduler.set_pattern(
+             stack(vec![atom("hit"); MAX_QUEUED_TRACE_EVENTS + overflow]),
+diff --git a/crates/studio/Cargo.toml b/crates/studio/Cargo.toml
+index 85d6c27d8730d64d74d3ce01e60dc8f0a27ade98..8886e44454dcf24c495c763792b88797cb93f677 100644
+--- a/crates/studio/Cargo.toml
++++ b/crates/studio/Cargo.toml
+@@ -8,6 +8,7 @@ publish = false
+ description = "The terminal studio behind `rustel studio`: editor, visuals, mixer and its live engine"
+ 
+ [features]
++music-link = ["rustel-runtime/music-link"]
+ # The complete studio. `--no-default-features` keeps the editor and live
+ # playback; each feature below adds one capability back and turns on the
+ # runtime feature of the same name when the runtime has one.
+diff --git a/crates/studio/src/engine/ui_state.rs b/crates/studio/src/engine/ui_state.rs
+index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf84cd0d0c 100644
+--- a/crates/studio/src/engine/ui_state.rs
++++ b/crates/studio/src/engine/ui_state.rs
+@@ -257,6 +257,8 @@ impl StudioUiState {
+             device.set_analysis_enabled(layout_ready);
+             self.audio_enabled = layout_ready;
+         }
++        #[cfg(feature = "music-link")]
++        session.publish_music_audio(device);
+         // The audition tap is always armed: a preview can sound the moment
+         // the browser asks, whatever the score's own visuals are doing. The
+         // score's own taps follow the audible layout: the reset below records

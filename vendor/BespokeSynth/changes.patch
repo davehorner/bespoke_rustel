@@ -1,0 +1,1835 @@
+diff --git a/Source/CMakeLists.txt b/Source/CMakeLists.txt
+index 8c5d27bcd42bcbabd03d3e0882cbc9199c757a8e..cc6595e97baa2bf993ea06eeab454e63b4169aa5 100644
+--- a/Source/CMakeLists.txt
++++ b/Source/CMakeLists.txt
+@@ -888,6 +888,15 @@ target_sources(BespokeSynth PRIVATE
+     VelocityScaler.cpp
+     VelocityScaler.h
+     VelocitySetter.cpp
++    RustelPattern.cpp
++    RustelLink.h
++    RustelView.cpp
++    RustelViewModes.cpp
++    RustelViewAudio.cpp
++    RustelView.h
++    RustelAudio.cpp
++    RustelAudio.h
++    RustelPattern.h
+     VelocitySetter.h
+     VelocityStepSequencer.cpp
+     VelocityStepSequencer.h
+diff --git a/Source/ModuleFactory.cpp b/Source/ModuleFactory.cpp
+index b5cdc7aa28e9fd939cf4bde3fd5eb05686a94d99..907d105b6c09258d7a1609125b0b98b2ea5b8efe 100644
+--- a/Source/ModuleFactory.cpp
++++ b/Source/ModuleFactory.cpp
+@@ -29,6 +29,9 @@
+ #endif
+ 
+ #include "ModuleFactory.h"
++#include "RustelPattern.h"
++#include "RustelView.h"
++#include "RustelAudio.h"
+ 
+ #include "LaunchpadKeyboard.h"
+ #include "DrumPlayer.h"
+@@ -323,6 +326,10 @@ ModuleFactory::ModuleFactory()
+    REGISTER(Vocoder, fftvocoder, kModuleCategory_Audio);
+    REGISTER(FreqDelay, freqdelay, kModuleCategory_Audio);
+    REGISTER(VelocitySetter, velocitysetter, kModuleCategory_Note);
++   REGISTER(RustelPattern, rustelpattern, kModuleCategory_Other);
++   REGISTER(RustelView, rustelview, kModuleCategory_Other);
++   REGISTER(RustelAudio, rustelaudio, kModuleCategory_Instrument);
++   REGISTER(RustelTranspose, rusteltranspose, kModuleCategory_Other);
+    REGISTER(NoteSinger, notesinger, kModuleCategory_Instrument);
+    REGISTER(NoteOctaver, noteoctaver, kModuleCategory_Note);
+    REGISTER(FourOnTheFloor, fouronthefloor, kModuleCategory_Instrument);
+diff --git a/Source/RustelAudio.cpp b/Source/RustelAudio.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..957aed39b92420cda5a92d0e44c26172a13968ad
+--- /dev/null
++++ b/Source/RustelAudio.cpp
+@@ -0,0 +1,195 @@
++#include "RustelAudio.h"
++#include "RustelLink.h"
++#include "IAudioReceiver.h"
++#include "ModularSynth.h"
++#include "OpenFrameworksPort.h"
++#include "FileStream.h"
++#include <array>
++#include <algorithm>
++#include <cstring>
++#include <atomic>
++#include <cmath>
++#include <mutex>
++#include <set>
++#if JUCE_WINDOWS
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#undef LoadString
++#undef min
++#undef max
++#endif
++
++// The worker opens mappings, adapts sample rates and buffers PCM. Process only
++// consumes this fixed SPSC queue; it never opens a handle, takes a lock or waits.
++class RustelAudioTransport : private juce::Thread {
++   static constexpr uint64_t QueueSize = 16384;
++   struct Frame { float left, right; uint64_t epoch; };
++   struct Config {
++      std::string mapping;
++      int slot{-1}, rate{48000}, block{256};
++      bool active{false};
++      uint64_t epoch{0};
++   };
++public:
++   RustelAudioTransport() : Thread("Rustel lane PCM") { startThread(); }
++   ~RustelAudioTransport() override { signalThreadShouldExit(); notify(); stopThread(3000); }
++   void Configure(const std::string& mapping, int slot, bool active) {
++      std::lock_guard<std::mutex> lock(mMutex);
++      int rate = int(gSampleRate), block = gBufferSize;
++      if (mConfig.mapping == mapping && mConfig.slot == slot && mConfig.active == active && mConfig.rate == rate && mConfig.block == block) return;
++      mConfig = {mapping,slot,rate,block,active,mConfig.epoch+1};
++      mEpoch.store(mConfig.epoch,std::memory_order_release);
++   }
++   bool Pop(float& left, float& right) {
++      auto read = mRead.load(std::memory_order_relaxed);
++      auto write = mWrite.load(std::memory_order_acquire);
++      auto epoch = mEpoch.load(std::memory_order_acquire);
++      // Discard old bindings without ever moving the producer's cursor.
++      while (read < write) {
++         const auto& frame = mQueue[read & (QueueSize-1)];
++         ++read;
++         if (frame.epoch == epoch) {
++            left=frame.left;right=frame.right;
++            mRead.store(read,std::memory_order_release);return true;
++         }
++      }
++      mRead.store(read,std::memory_order_release);return false;
++   }
++   bool Receiving() const { return mReceiving.load(std::memory_order_relaxed); }
++   uint64_t Epoch() const { return mEpoch.load(std::memory_order_acquire); }
++private:
++   void run() override {
++#if JUCE_WINDOWS
++      HANDLE handle = nullptr; void* base = nullptr;
++      std::string mapped;
++      double position = 0;
++      uint64_t epoch = 0, sourceEpoch = 0, lastHead = 0, lastHeadAt = 0;
++      auto close = [&] { if(base) UnmapViewOfFile(base);if(handle) CloseHandle(handle);base=nullptr;handle=nullptr;mapped.clear();mReceiving.store(false); };
++      auto load32 = [&](size_t offset) -> uint32_t { return uint32_t(InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(static_cast<char*>(base)+offset),0,0)); };
++      auto load64 = [&](size_t offset) -> uint64_t { return uint64_t(InterlockedCompareExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+offset),0,0)); };
++      auto sample = [&](int slot,uint64_t frame,int channel,float& out) {
++         size_t at=4096+((size_t(slot)*16384+(frame&16383))*2+channel)*8;
++         uint64_t bits=load64(at);
++         if(uint32_t(bits>>32)!=uint32_t(frame)) return false;
++         uint32_t value=uint32_t(bits);std::memcpy(&out,&value,sizeof(out));
++         return std::isfinite(out);
++      };
++      while(!threadShouldExit()) {
++         Config config;{std::lock_guard<std::mutex> lock(mMutex);config=mConfig;}
++         if (!config.active || config.slot<0 || config.slot>=15 || config.rate<=0) {close();wait(10);continue;}
++         if(mapped!=config.mapping) {
++            close();
++            if(config.mapping.rfind("Local\\RustelAudio-",0)!=0 || config.mapping.size()>128) {wait(100);continue;}
++            handle=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,juce::String(config.mapping).toWideCharPointer());
++            if(handle) base=MapViewOfFile(handle,FILE_MAP_ALL_ACCESS,0,0,4096+15*16384*2*8);
++            if(!base || load32(0)!=0x524c4131 || load32(4)!=1 || load32(12)!=15 || load32(16)!=16384) {close();wait(100);continue;}
++            mapped=config.mapping;epoch=0;lastHeadAt=GetTickCount64();lastHead=load64(24);
++         }
++         uint32_t rate=load32(8);uint64_t head=load64(24), se=load64(32), now=GetTickCount64();
++         if(head!=lastHead) {lastHead=head;lastHeadAt=now;}
++         if(rate<8000 || rate>384000 || now-lastHeadAt>500) {mReceiving.store(false);wait(5);continue;}
++         double target=rate*0.05;
++         if(epoch!=config.epoch || sourceEpoch!=se || position+2>=double(head) || double(head)-position>12000) {
++            if(double(head)<target+2) {wait(2);continue;}
++            position=double(head)-target;epoch=config.epoch;sourceEpoch=se;
++         }
++         // Lease only a healthy, connected consumer. A stopped/deleted node's
++         // lease expires automatically; another reader's lease is never cleared.
++         InterlockedExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+64+config.slot*64),LONG64(now));
++         uint64_t read=mRead.load(std::memory_order_acquire), write=mWrite.load(std::memory_order_relaxed);
++         size_t goal=size_t(std::clamp(config.block*3,256,8192));
++         double correction=std::clamp((double(head)-position-target)/target*0.002,-0.005,0.005);
++         double ratio=double(rate)/config.rate*(1+correction);
++         while(write-read<goal && write-read<QueueSize-1 && position+2<double(head)) {
++            auto frame=uint64_t(position);float l0,r0,l1,r1;
++            if(!sample(config.slot,frame,0,l0)||!sample(config.slot,frame,1,r0)||!sample(config.slot,frame+1,0,l1)||!sample(config.slot,frame+1,1,r1)) {position=double(head)-target;break;}
++            float f=float(position-double(frame));
++            mQueue[write&(QueueSize-1)]={l0+(l1-l0)*f,r0+(r1-r0)*f,epoch};
++            ++write;position+=ratio;
++         }
++         mWrite.store(write,std::memory_order_release);mReceiving.store(true);wait(2);
++         // Optional diagnostics for off-thread probes: frames consumed by the
++         // real Bespoke audio callback, not just copied into its queue.
++         InterlockedExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+72+config.slot*64),LONG64(mRead.load(std::memory_order_acquire)));
++      }
++      close();
++#else
++      while(!threadShouldExit()) wait(100);
++#endif
++   }
++   std::mutex mMutex;
++   Config mConfig;
++   std::array<Frame,QueueSize> mQueue{};
++   std::atomic<uint64_t> mRead{0},mWrite{0},mEpoch{0};
++   std::atomic<bool> mReceiving{false};
++};
++
++RustelAudio::RustelAudio() : mTransport(std::make_unique<RustelAudioTransport>()),mLeft(gBufferSize),mRight(gBufferSize) { GetVizBuffer()->SetNumChannels(2); }
++RustelAudio::~RustelAudio() = default;
++void RustelAudio::CreateUIControls() {
++   IDrawableModule::CreateUIControls();
++   mLanes=new DropdownList(this,"lane",4,4,&mSelected,350);
++}
++void RustelAudio::DropdownUpdated(DropdownList*,int,double) {
++   mKey=mSelected>=0 && mSelected<int(mChoices.size())?mChoices[mSelected].key:"";
++}
++void RustelAudio::Poll() {
++   std::vector<Choice> choices;
++   auto sessions=RustelLink::Sessions();
++   if(auto* list=sessions.getArray()) for(const auto& session:*list) {
++      auto stream=session["lane_audio"];auto* routes=stream["lanes"].getDynamicObject();
++      if(!routes) continue;
++      auto mapping=stream["mapping"].toString().toStdString();
++      std::set<std::string> added;
++      auto add=[&](const std::string& id,const std::string& text) {
++         auto property=juce::Identifier(id);
++         if(!routes->hasProperty(property)) return;
++         int slot=int(routes->getProperty(property));if(slot<0||slot>=15) return;
++         choices.push_back({session["session"].toString().toStdString()+"/"+id,session["session"].toString().toStdString()+" / "+id+" "+text,mapping,slot});added.insert(id);
++      };
++      if(auto* lanes=session["lanes"].getArray()) for(const auto& lane:*lanes) {
++         auto source=lane["source"].toString().upToFirstOccurrenceOf("\n",false,false).substring(0,70).toStdString();
++         add(lane["id"].toString().toStdString(),source);
++      }
++      // Keep retired lanes selectable while their existing effects ring out.
++      for(int i=0;i<routes->getProperties().size();++i) {
++         auto id=routes->getProperties().getName(i).toString().toStdString();
++         if(!added.count(id)) add(id,"(retired lane / tails)");
++      }
++   }
++   bool changed=choices.size()!=mChoices.size();
++   if(!changed) for(size_t i=0;i<choices.size();++i) changed|=choices[i].key!=mChoices[i].key || choices[i].label!=mChoices[i].label || choices[i].mapping!=mChoices[i].mapping;
++   if(changed) {
++      mChoices=choices;mLanes->Clear();mSelected=-1;
++      for(int i=0;i<int(choices.size());++i) {mLanes->AddLabel(choices[i].label,i);if(choices[i].key==mKey)mSelected=i;}
++   }
++   if(mSelected>=0 && mSelected<int(mChoices.size())) {
++      auto& choice=mChoices[mSelected];mTransport->Configure(choice.mapping,choice.slot,mEnabled && GetTarget()!=nullptr);
++   } else mTransport->Configure("",-1,false);
++}
++void RustelAudio::Process(double) {
++   if(mLeft.size()!=size_t(gBufferSize)) return;
++   SyncOutputBuffer(2);
++   auto* target=mEnabled?GetTarget():nullptr;
++   auto epoch=mTransport->Epoch();
++   if(epoch!=mEpoch) { mEpoch=epoch;mFade=0;mLastLeft=mLastRight=0; }
++   for(int i=0;i<gBufferSize;++i) {
++      float left=0,right=0;
++      if(mTransport->Pop(left,right) && target) {
++         mFade=std::min(1.0f,mFade+1.0f/64);mLastLeft=left;mLastRight=right;
++      } else mFade=std::max(0.0f,mFade-1.0f/64);
++      mLeft[i]=mLastLeft*mFade;mRight[i]=mLastRight*mFade;
++   }
++   if(target) {Add(target->GetBuffer()->GetChannel(0),mLeft.data(),gBufferSize);Add(target->GetBuffer()->GetChannel(1),mRight.data(),gBufferSize);}
++   GetVizBuffer()->WriteChunk(mLeft.data(),gBufferSize,0);GetVizBuffer()->WriteChunk(mRight.data(),gBufferSize,1);
++}
++void RustelAudio::DrawModule() {
++   mLanes->Draw();ofSetColor(165,190,210);
++   DrawTextNormal(mChoices.empty()?"enable RUSTEL_LANE_AUDIO=1 in Rustel":mTransport->Receiving()?"stereo PCM / local monitor muted / tails active":"select lane and connect an audio cable",5,39,10);
++}
++void RustelAudio::LoadLayout(const ofxJSONElement& info) {mModuleSaveData.LoadString("target",info);mModuleSaveData.LoadString("binding",info);SetUpFromSaveData();}
++void RustelAudio::SetUpFromSaveData() {SetTarget(TheSynth->FindModule(mModuleSaveData.GetString("target")));mKey=mModuleSaveData.GetString("binding");}
++void RustelAudio::SaveState(FileStreamOut& out) {out<<GetModuleSaveStateRev();IDrawableModule::SaveState(out);out<<mKey;}
++void RustelAudio::LoadState(FileStreamIn& in,int rev) {IDrawableModule::LoadState(in,rev);LoadStateValidate(rev<=GetModuleSaveStateRev());in>>mKey;}
+diff --git a/Source/RustelAudio.h b/Source/RustelAudio.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4bb5bd636347658d3f3cd27d6ea52d7c896f77c0
+--- /dev/null
++++ b/Source/RustelAudio.h
+@@ -0,0 +1,41 @@
++#pragma once
++#include "IAudioSource.h"
++#include "IDrawableModule.h"
++#include "DropdownList.h"
++#include <memory>
++#include <vector>
++
++class RustelAudioTransport;
++class RustelAudio : public IAudioSource, public IDrawableModule, public IDropdownListener
++{
++public:
++   RustelAudio();
++   ~RustelAudio() override;
++   static IDrawableModule* Create() { return new RustelAudio(); }
++   static bool AcceptsAudio() { return false; }
++   static bool AcceptsNotes() { return false; }
++   static bool AcceptsPulses() { return false; }
++   void CreateUIControls() override;
++   void Poll() override;
++   void Process(double time) override;
++   void SetEnabled(bool enabled) override { mEnabled = enabled; }
++   bool IsEnabled() const override { return mEnabled; }
++   void DropdownUpdated(DropdownList*, int, double) override;
++   void LoadLayout(const ofxJSONElement&) override;
++   void SetUpFromSaveData() override;
++   void SaveState(FileStreamOut&) override;
++   void LoadState(FileStreamIn&, int) override;
++   int GetModuleSaveStateRev() const override { return 0; }
++private:
++   struct Choice { std::string key, label, mapping; int slot; };
++   void DrawModule() override;
++   void GetModuleDimensions(float& w, float& h) override { w = 360; h = 58; }
++   std::unique_ptr<RustelAudioTransport> mTransport;
++   DropdownList* mLanes{nullptr};
++   int mSelected{-1};
++   std::string mKey;
++   std::vector<Choice> mChoices;
++   std::vector<float> mLeft, mRight;
++   float mLastLeft{0}, mLastRight{0}, mFade{0};
++   uint64_t mEpoch{0};
++};
+diff --git a/Source/RustelLink.h b/Source/RustelLink.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..47a223e00b492c5c0d4997897579b94ed944ab97
+--- /dev/null
++++ b/Source/RustelLink.h
+@@ -0,0 +1,12 @@
++#pragma once
++#include <juce_core/juce_core.h>
++#include <string>
++
++// Shared immutable snapshots from the existing background HTTP/Hearsay adapter.
++namespace RustelLink
++{
++   juce::var Sessions();
++   juce::var Analysis();
++   std::string Status();
++   void Solo(const std::string& session, int64_t generation, const std::string& lane, bool enabled);
++}
+diff --git a/Source/RustelPattern.cpp b/Source/RustelPattern.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..a70ead7797521810368004dc91f6cbc36c223c38
+--- /dev/null
++++ b/Source/RustelPattern.cpp
+@@ -0,0 +1,263 @@
++#include "RustelPattern.h"
++#include "OpenFrameworksPort.h"
++#include "FileStream.h"
++#include "RustelLink.h"
++#include <deque>
++#include <mutex>
++
++namespace
++{
++   // One shared network thread for every pattern node. HTTP adapts the JUCE
++   // client to Hearsay in music-hub; neither Poll nor audio callbacks do I/O.
++   class MusicConnection : private juce::Thread
++   {
++   public:
++      MusicConnection()
++      : Thread("Rustel music link")
++      {
++         startThread();
++      }
++      ~MusicConnection() override
++      {
++         signalThreadShouldExit();
++         notify();
++         stopThread(5000);
++      }
++      static MusicConnection& Get()
++      {
++         static MusicConnection instance;
++         return instance;
++      }
++      juce::var Sessions()
++      {
++         std::lock_guard<std::mutex> lock(mMutex);
++         return mSessions;
++      }
++      juce::var Analysis()
++      {
++         std::lock_guard<std::mutex> lock(mMutex);
++         return mAnalysis;
++      }
++      std::string Status()
++      {
++         std::lock_guard<std::mutex> lock(mMutex);
++         return mStatus;
++      }
++      void Send(juce::var command)
++      {
++         std::lock_guard<std::mutex> lock(mMutex);
++         if (mCommands.size() < 64)
++            mCommands.push_back(command);
++         notify();
++      }
++
++   private:
++      juce::var Request(const char* path, const juce::var& body = {})
++      {
++         juce::URL url(juce::String("http://127.0.0.1:9614") + path);
++         const bool post = !body.isVoid();
++         if (post)
++            url = url.withPOSTData(juce::JSON::toString(body));
++         int status = 0;
++         auto options = juce::URL::InputStreamOptions(post ? juce::URL::ParameterHandling::inPostData : juce::URL::ParameterHandling::inAddress)
++                        .withConnectionTimeoutMs(1600)
++                        .withStatusCode(&status)
++                        .withNumRedirectsToFollow(0)
++                        .withExtraHeaders(post ? "Content-Type: application/json\r\n" : "");
++         auto stream = url.createInputStream(options);
++         if (stream == nullptr)
++            return {};
++         auto result = juce::JSON::parse(stream->readEntireStreamAsString());
++         if (status != 200)
++            return {};
++         return result;
++      }
++      void run() override
++      {
++         double nextSessions = 0;
++         while (!threadShouldExit())
++         {
++            double now = juce::Time::getMillisecondCounterHiRes();
++            if (now >= nextSessions)
++            {
++               auto sessions = Request("/sessions");
++               nextSessions = now + 200;
++               std::lock_guard<std::mutex> lock(mMutex);
++               mSessions = sessions;
++               mStatus = sessions.isArray() ? "connected" : "music hub unavailable";
++            }
++            auto analysis = Request("/analysis");
++            std::deque<juce::var> commands;
++            {
++               std::lock_guard<std::mutex> lock(mMutex);
++               mAnalysis = analysis;
++               commands.swap(mCommands);
++            }
++            for (const auto& command : commands)
++            {
++               if (threadShouldExit())
++                  break;
++               auto response = Request(command.hasProperty("solo") ? "/solo" : "/transpose", command);
++               std::lock_guard<std::mutex> lock(mMutex);
++               mStatus = response.isVoid() ? "command timed out; reconnect to retry" : (bool(response["accepted"]) ? "command applied" : response["message"].toString().toStdString());
++            }
++            wait(33);
++         }
++      }
++      std::mutex mMutex;
++      juce::var mSessions;
++      juce::var mAnalysis;
++      std::deque<juce::var> mCommands;
++      std::string mStatus;
++   };
++}
++
++juce::var RustelLink::Sessions() { return MusicConnection::Get().Sessions(); }
++juce::var RustelLink::Analysis() { return MusicConnection::Get().Analysis(); }
++std::string RustelLink::Status() { return MusicConnection::Get().Status(); }
++void RustelLink::Solo(const std::string& session, int64_t generation, const std::string& lane, bool enabled)
++{
++   if (session.empty() || lane.empty() || generation < 0) return;
++   auto* object = new juce::DynamicObject();
++   object->setProperty("request", juce::Uuid().toString());
++   object->setProperty("session", juce::String(session));
++   object->setProperty("generation", juce::int64(generation));
++   object->setProperty("lane", juce::String(lane));
++   object->setProperty("solo", enabled);
++   MusicConnection::Get().Send(juce::var(object));
++}
++
++void RustelTranspose::CreateUIControls()
++{
++   IDrawableModule::CreateUIControls();
++   mSlider = new IntSlider(this, "semitones", 5, 5, 160, 15, &mSemitones, -48, 48);
++}
++void RustelTranspose::DrawModule()
++{
++   if (!Minimized() && IsVisible())
++      mSlider->Draw();
++}
++
++void RustelPattern::CreateUIControls()
++{
++   IDrawableModule::CreateUIControls();
++   mLanes = new DropdownList(this, "lane", 5, 5, &mSelected, 285);
++   mPatternOutput = new PatchCableSource(this, kConnectionType_Special);
++   mPatternOutput->SetPredicateFilter([](IClickable* target)
++                                      {
++                                         return dynamic_cast<RustelTranspose*>(target) != nullptr;
++                                      });
++   AddPatchCableSource(mPatternOutput);
++}
++
++void RustelPattern::DropdownUpdated(DropdownList*, int, double)
++{
++   if (auto* object = mLastBinding.getDynamicObject())
++   {
++      object->setProperty("semitones", 0);
++      object->setProperty("request", juce::Uuid().toString());
++      MusicConnection::Get().Send(mLastBinding.clone());
++      mLastBinding = juce::var();
++   }
++   mSelectedKey = mSelected >= 0 && mSelected < int(mKeys.size()) ? mKeys[mSelected] : "";
++   mLastCommand.clear();
++}
++
++RustelPattern::~RustelPattern()
++{
++   if (auto* object = mLastBinding.getDynamicObject())
++   {
++      object->setProperty("semitones", 0);
++      object->setProperty("request", juce::Uuid().toString());
++      MusicConnection::Get().Send(mLastBinding.clone());
++   }
++}
++
++void RustelPattern::Poll()
++{
++   auto& connection = MusicConnection::Get();
++   auto sessions = connection.Sessions();
++   mStatus = connection.Status();
++   std::vector<std::string> keys;
++   std::vector<juce::var> bindings;
++   std::vector<std::string> labels;
++   std::vector<int> offsets;
++   if (auto* list = sessions.getArray())
++   {
++      for (const auto& session : *list)
++      {
++         if (auto* lanes = session["lanes"].getArray())
++         {
++            for (const auto& lane : *lanes)
++            {
++               keys.push_back(session["session"].toString().toStdString() + "/" + lane["id"].toString().toStdString());
++               auto label = lane["source"].toString().toStdString();
++               if (label.empty())
++                  label = lane["label"].toString().toStdString();
++               std::replace(label.begin(), label.end(), '\n', ' ');
++               if (label.size() > 100)
++                  label = label.substr(0, 97) + "...";
++               labels.push_back(lane["id"].toString().toStdString() + " " + label);
++               offsets.push_back(int(lane["transpose"]));
++               juce::DynamicObject::Ptr object = new juce::DynamicObject();
++               object->setProperty("session", session["session"]);
++               object->setProperty("generation", session["generation"]);
++               object->setProperty("lane", lane["id"]);
++               bindings.emplace_back(object.get());
++            }
++         }
++      }
++   }
++   if (keys != mKeys || labels != mLabels)
++   {
++      mKeys = keys;
++      mLabels = labels;
++      mLanes->Clear();
++      mSelected = -1;
++      for (int i = 0; i < int(keys.size()); ++i)
++      {
++         mLanes->AddLabel(labels[i], i);
++         if (keys[i] == mSelectedKey)
++            mSelected = i;
++      }
++   }
++   if (mSelected < 0 || mSelected >= int(bindings.size()))
++      return;
++   auto* transpose = dynamic_cast<RustelTranspose*>(mPatternOutput->GetTarget());
++   int semitones = transpose ? transpose->Semitones() : 0;
++   auto command = bindings[mSelected].clone();
++   command.getDynamicObject()->setProperty("semitones", semitones);
++   std::string identity = juce::JSON::toString(command).toStdString();
++   double now = juce::Time::getMillisecondCounterHiRes();
++   if (identity == mLastCommand && (offsets[mSelected] == semitones || now < mRetryAt))
++      return;
++   mRetryAt = now + 2000;
++   mLastCommand = identity;
++   command.getDynamicObject()->setProperty("request", juce::Uuid().toString());
++   mLastBinding = command.clone();
++   connection.Send(command);
++}
++
++void RustelPattern::DrawModule()
++{
++   if (Minimized() || !IsVisible())
++      return;
++   mLanes->Draw();
++   DrawTextNormal(mStatus, 5, 43);
++}
++
++void RustelPattern::SaveState(FileStreamOut& out)
++{
++   out << GetModuleSaveStateRev();
++   IDrawableModule::SaveState(out);
++   out << mSelectedKey;
++}
++
++void RustelPattern::LoadState(FileStreamIn& in, int rev)
++{
++   IDrawableModule::LoadState(in, rev);
++   LoadStateValidate(rev <= GetModuleSaveStateRev());
++   in >> mSelectedKey;
++   mKeys.clear();
++   mLastCommand.clear();
++}
+diff --git a/Source/RustelPattern.h b/Source/RustelPattern.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..60071f5c82365f61ab1c012f895a9681f3af4b35
+--- /dev/null
++++ b/Source/RustelPattern.h
+@@ -0,0 +1,48 @@
++#pragma once
++#include <juce_core/juce_core.h>
++
++#include "IDrawableModule.h"
++#include "DropdownList.h"
++#include "Slider.h"
++#include "PatchCableSource.h"
++
++// Special cables describe remote pattern operations; they carry no audio.
++class RustelTranspose : public IDrawableModule, public IIntSliderListener
++{
++public:
++   static IDrawableModule* Create() { return new RustelTranspose(); }
++   void CreateUIControls() override;
++   void IntSliderUpdated(IntSlider*, int, double) override {}
++   int Semitones() { ComputeSliders(0); return mSemitones; }
++private:
++   void DrawModule() override;
++   void GetModuleDimensions(float& width, float& height) override { width = 170; height = 40; }
++   int mSemitones{0};
++   IntSlider* mSlider{nullptr};
++};
++
++class RustelPattern : public IDrawableModule, public IDropdownListener
++{
++public:
++   static IDrawableModule* Create() { return new RustelPattern(); }
++   ~RustelPattern() override;
++   void CreateUIControls() override;
++   void Poll() override;
++   void DropdownUpdated(DropdownList*, int, double) override;
++   void SaveState(FileStreamOut& out) override;
++   void LoadState(FileStreamIn& in, int rev) override;
++   int GetModuleSaveStateRev() const override { return 0; }
++private:
++   void DrawModule() override;
++   void GetModuleDimensions(float& width, float& height) override { width = 300; height = 62; }
++   DropdownList* mLanes{nullptr};
++   PatchCableSource* mPatternOutput{nullptr};
++   int mSelected{-1};
++   std::vector<std::string> mKeys;
++   std::vector<std::string> mLabels;
++   juce::var mLastBinding;
++   double mRetryAt{0};
++   std::string mSelectedKey;
++   std::string mLastCommand;
++   std::string mStatus{"waiting for music hub"};
++};
+diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..23bf9b64d902eb211b64a77bc839f6867dcd1614
+--- /dev/null
++++ b/Source/RustelView.cpp
+@@ -0,0 +1,654 @@
++#include "RustelView.h"
++#include "RustelLink.h"
++#include "OpenFrameworksPort.h"
++#include "FileStream.h"
++#include "ModularSynth.h"
++#include <algorithm>
++#include <array>
++#include <cmath>
++
++namespace
++{
++   const std::array<ofColor, 8> kColors{ { { 31, 242, 209 }, { 255, 89, 107 }, { 163, 107, 255 }, { 255, 186, 51 }, { 51, 166, 255 }, { 255, 89, 204 }, { 158, 255, 71 }, { 255, 138, 56 } } };
++   struct Point
++   {
++      float x, y, z;
++   };
++   struct Screen
++   {
++      float x, y, depth;
++   };
++   struct Face
++   {
++      std::array<Screen, 4> points;
++      ofColor color;
++      float depth;
++   };
++   ofColor WithAlpha(ofColor color, int alpha)
++   {
++      color.a = alpha;
++      return color;
++   }
++
++   void Polygon(const std::array<Screen, 4>& points, ofColor color)
++   {
++      ofFill();
++      ofSetColor(color);
++      ofBeginShape();
++      for (const auto& point : points)
++         ofVertex(point.x, point.y);
++      ofEndShape(true);
++   }
++}
++
++RustelView::RustelView()
++: IDrawableModule(900, 640)
++{}
++
++void RustelView::CreateUIControls()
++{
++   IDrawableModule::CreateUIControls();
++   mSessions = new DropdownList(this, "session", 10, 6, &mSessionIndex, 240);
++   mLanePicker = new DropdownList(this, "lane", 260, 6, &mLaneIndex, 180);
++   mLanePicker->AddLabel("all lanes", -1);
++   mViewPicker = new DropdownList(this, "view", 450, 6, &mViewMode, 180);
++   mViewPicker->AddLabel("stage", 0);
++   mViewPicker->AddLabel("piano roll", 1);
++   mViewPicker->AddLabel("wordfall", 2);
++   mViewPicker->AddLabel("spiral", 3);
++   mViewPicker->AddLabel("pitch wheel", 4);
++   mViewPicker->AddLabel("scope (master)", 5);
++   mViewPicker->AddLabel("spectrum (master)", 6);
++   mViewPicker->AddLabel("vectorscope (master)", 7);
++   mViewPicker->AddLabel("control curves", 8);
++   mDisplayGainSlider = new FloatSlider(this, "display gain", 10, 30, 250, 15, &mDisplayGain, 0.25f, 32);
++   mYawSlider = new FloatSlider(this, "yaw", 10, 30, 120, 15, &mYaw, -PI, PI);
++   mTiltSlider = new FloatSlider(this, "tilt", 140, 30, 120, 15, &mTilt, -1.45f, 1.45f);
++   mZoomSlider = new FloatSlider(this, "zoom", 270, 30, 120, 15, &mZoom, 0.2f, 5.0f);
++   mOrbitCheckbox = new Checkbox(this, "orbit", 410, 30, &mOrbit);
++   mSoloCheckbox = new Checkbox(this, "solo", 480, 30, &mSolo);
++   mResetCamera = new ClickButton(this, "reset", 595, 30);
++
++}
++
++void RustelView::Resize(float w, float h)
++{
++   mWidth = std::clamp(w, 640.0f, 1800.0f);
++   mHeight = std::clamp(h, 480.0f, 1200.0f);
++}
++
++void RustelView::DropdownUpdated(DropdownList* list, int, double)
++{
++   if (list == mViewPicker)
++   {
++      mPanX = mPanY = 0;
++      mCameraDragging = false;
++   }
++   if (list == mSessions)
++   {
++      if (mSolo) RustelLink::Solo(mSessionId, mGeneration, mLaneId, false);
++      mSolo = false;
++      mSessionId = mSessionIndex >= 0 && mSessionIndex < int(mSessionIds.size()) ? mSessionIds[mSessionIndex] : "";
++      mGeneration = -1;
++      mLaneId.clear();
++      mLaneIndex = -1;
++      mLanes.clear();
++      mEvents.clear();
++      mLive = false;
++      mSourceScroll = 0;
++      mAudioSequence = 0;
++      mAudioGeneration = -1;
++      mAudioScope.clear();
++      mAudioSpectrum.clear();
++      mAudioSides.clear();
++   }
++   if (list == mLanePicker)
++   {
++      auto previous = mLaneId;
++      mLaneId = mLaneIndex >= 0 && mLaneIndex < int(mLanes.size()) ? mLanes[mLaneIndex].id : "";
++      if (mSolo) {
++         if (mLaneId.empty()) { RustelLink::Solo(mSessionId, mGeneration, previous, false); mSolo = false; }
++         else RustelLink::Solo(mSessionId, mGeneration, mLaneId, true);
++      }
++      mSourceScroll = 0;
++   }
++}
++
++void RustelView::Poll()
++{
++   // Poll copies parsed values; DrawModule only uses native cached data.
++   auto sessions = RustelLink::Sessions();
++   std::vector<std::string> ids;
++   if (auto* list = sessions.getArray())
++      for (const auto& session : *list)
++         ids.push_back(session["session"].toString().toStdString());
++   if (ids != mSessionIds)
++   {
++      mSessionIds = ids;
++      mSessions->Clear();
++      mSessionIndex = -1;
++      for (int i = 0; i < int(ids.size()); ++i)
++      {
++         mSessions->AddLabel(ids[i], i);
++         if (ids[i] == mSessionId)
++            mSessionIndex = i;
++      }
++      if (mSessionId.empty() && !ids.empty())
++      {
++         mSessionId = ids[0];
++         mSessionIndex = 0;
++      }
++   }
++   mLive = false;
++   mStatus = RustelLink::Status();
++   if (mSessionIndex < 0 || mSessionIndex >= int(ids.size()))
++      return;
++   auto session = sessions[mSessionIndex];
++   double cycle = double(session["cycle"]), cps = double(session["cps"]);
++   auto generation = int64_t(session["generation"]);
++   if (!std::isfinite(cycle) || !std::isfinite(cps) || cps <= 0)
++      return;
++   mLive = true;
++   mSolo = !mLaneId.empty() && session["solo_lane"].toString().toStdString() == mLaneId;
++   PollAudio();
++   if (generation == mGeneration && cycle == mCycle)
++      return;
++   mGeneration = generation;
++   mDocument = session["source"].toString().toStdString();
++   mCycle = cycle;
++   mCps = cps;
++   mReceived = juce::Time::getMillisecondCounterHiRes();
++   std::vector<Lane> lanes;
++   if (auto* list = session["lanes"].getArray())
++      for (const auto& lane : *list)
++      {
++         if (lanes.size() >= 64)
++            break;
++         lanes.push_back({ lane["id"].toString().toStdString(), lane["label"].toString().toStdString(), lane["source"].toString().toStdString(), int(lane["transpose"]) });
++      }
++   bool changed = lanes.size() != mLanes.size();
++   if (!changed)
++      for (size_t i = 0; i < lanes.size(); ++i)
++         changed |= lanes[i].id != mLanes[i].id || lanes[i].label != mLanes[i].label || lanes[i].source != mLanes[i].source;
++   mLanes = lanes;
++   if (changed)
++   {
++      mLanePicker->Clear();
++      mLanePicker->AddLabel("all lanes", -1);
++      mLaneIndex = -1;
++      for (int i = 0; i < int(lanes.size()); ++i)
++      {
++         auto label = lanes[i].source.empty() ? lanes[i].label : lanes[i].source;
++         std::replace(label.begin(), label.end(), '\n', ' ');
++         if (label.size() > 100)
++            label = label.substr(0, 97) + "...";
++         mLanePicker->AddLabel(lanes[i].id + " " + label, i);
++         if (lanes[i].id == mLaneId)
++            mLaneIndex = i;
++      }
++   }
++   mEvents.clear();
++   if (auto* list = session["events"].getArray())
++      for (const auto& event : *list)
++      {
++         if (mEvents.size() >= 2048)
++            break;
++         auto id = event["lane"].toString().toStdString();
++         auto lane = std::find_if(lanes.begin(), lanes.end(), [&](const Lane& l)
++                                  {
++                                     return l.id == id;
++                                  });
++         if (lane == lanes.end())
++            continue;
++         double begin = double(event["cycle"]), duration = double(event["duration"]);
++         float original = event["original_pitch"].isDouble() || event["original_pitch"].isInt() ? float(event["original_pitch"]) : 48;
++         float pitch = event["pitch"].isDouble() || event["pitch"].isInt() ? float(event["pitch"]) : 48;
++         float gain = float(event["gain"]);
++         if (!std::isfinite(begin) || !std::isfinite(duration) || !std::isfinite(original) || !std::isfinite(pitch) || !std::isfinite(gain))
++            continue;
++         Event parsed{ int(lane - lanes.begin()), begin, duration, original, pitch, std::clamp(gain, 0.0f, 1.0f) };
++         if (auto* ranges = event["context"].getArray())
++            for (const auto& range : *ranges)
++               if (range.size() == 2 && parsed.context.size() < 64)
++                  parsed.context.push_back({ int(range[0]), int(range[1]) });
++         const char* keys[] = { "gain", "pan", "cutoff", "resonance" };
++         auto controls = event["controls"];
++         for (int i = 0; i < 4; ++i)
++         {
++            auto value = controls[keys[i]];
++            parsed.hasControl[i] = (value.isDouble() || value.isInt() || value.isInt64()) && std::isfinite(double(value));
++            parsed.controls[i] = parsed.hasControl[i] ? double(value) : 0;
++         }
++         mEvents.push_back(std::move(parsed));
++      }
++}
++
++void RustelView::DrawModule()
++{
++   if (Minimized() || !IsVisible())
++      return;
++   ComputeSliders(0);
++   ofPushStyle();
++   ofFill();
++   ofSetColor(5, 9, 18);
++   ofRect(0, 0, mWidth, mHeight, 0);
++   mSessions->Draw();
++   mLanePicker->Draw();
++   mViewPicker->Draw();
++   mYawSlider->SetShowing(mViewMode == 0);
++   mTiltSlider->SetShowing(mViewMode == 0);
++   mOrbitCheckbox->SetShowing(mViewMode == 0);
++
++   mDisplayGainSlider->SetShowing((mViewMode >= 5 && mViewMode <= 7));
++   mDisplayGainSlider->Draw();
++   mYawSlider->Draw();
++   mTiltSlider->Draw();
++   mZoomSlider->Draw();
++   mOrbitCheckbox->Draw();
++   mSoloCheckbox->Draw();
++   mResetCamera->Draw();
++   const double now = juce::Time::getMillisecondCounterHiRes();
++   const double dt = mLastFrame > 0 ? std::clamp((now - mLastFrame) / 1000.0, 0.0, 0.1) : 0;
++   mLastFrame = now;
++   if (mOrbit)
++      mOrbitPhase += dt * 0.15;
++   const double age = std::max(0.0, (now - mReceived) / 1000.0);
++   const bool live = mLive && age < 3.0;
++   const double cycle = mCycle + std::min(age, 3.0) * mCps;
++   std::vector<int> visible;
++   for (int i = 0; i < int(mLanes.size()); ++i)
++      if (mLaneId.empty() || mLanes[i].id == mLaneId)
++         visible.push_back(i);
++   const int count = int(visible.size());
++   ofSetColor(live ? ofColor(80, 235, 200) : ofColor(150, 160, 175));
++   DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "MASTER AUDIO ANALYSIS" : (live ? "LIVE PATTERN FIELD" : "WAITING FOR RUSTEL"), 12, 70);
++   ofSetColor(155, 175, 200);
++   DrawTextNormal(ofToString(mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
++   const float sourceHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f);
++   const float top = 82, bottom = mHeight - sourceHeight - 50, fieldHeight = bottom - top;
++   if (mViewMode == 0)
++   {
++      const float centerZ = std::max(0, count - 1) * 0.85f;
++      const float yaw = mYaw + (mOrbit ? std::sin(float(mOrbitPhase)) * 0.6f : 0.0f);
++      const float scale = std::min((mWidth - 60) / (19.0f + count * 0.35f), fieldHeight / (7.0f + count * 0.7f)) * mZoom;
++      auto project = [&](Point p) -> Screen
++      {
++         float z = p.z - centerZ;
++         float x = std::cos(yaw) * p.x + std::sin(yaw) * z;
++         float depth = -std::sin(yaw) * p.x + std::cos(yaw) * z;
++         float y = std::cos(mTilt) * p.y - std::sin(mTilt) * depth;
++         depth = std::sin(mTilt) * p.y + std::cos(mTilt) * depth;
++         float perspective = 30.0f / std::max(8.0f, 30.0f + depth);
++         return { mWidth * (0.5f + mPanX) + x * scale * perspective, top + fieldHeight * (0.65f + mPanY) - y * scale * perspective, depth };
++      };
++      auto line = [&](Point a, Point b, ofColor color, float width)
++      {
++         auto p = project(a), q = project(b);
++         ofSetColor(color);
++         ofSetLineWidth(width);
++         ofLine(p.x, p.y, q.x, q.y);
++      };
++      ofPushStyle();
++      ofPushMatrix();
++      ofClipWindow(2, top, mWidth - 4, fieldHeight, true);
++      for (int beat = -8; beat <= 8; ++beat)
++      {
++         double b = std::floor(cycle * 4) + beat;
++         float x = float(b / 4 - cycle) * 5;
++         line({ x, -0.1f, -0.5f }, { x, -0.1f, centerZ * 2 + 0.5f }, ofColor(35, 55, 80, int64_t(b) % 4 == 0 ? 150 : 65), int64_t(b) % 4 == 0 ? 1.2f : 0.6f);
++      }
++      std::vector<Face> faces;
++      faces.reserve(std::min<size_t>(mEvents.size() * 12, 12000));
++      auto box = [&](Point p, Point size, ofColor color, bool ghost)
++      {
++         std::array<Screen, 8> corners;
++         for (int i = 0; i < 8; ++i)
++            corners[i] = project({ p.x + ((i & 1) ? size.x : 0), p.y + ((i & 2) ? size.y : 0), p.z + ((i & 4) ? size.z : 0) });
++         static const int indices[6][4] = { { 0, 1, 3, 2 }, { 4, 6, 7, 5 }, { 2, 3, 7, 6 }, { 0, 4, 5, 1 }, { 0, 2, 6, 4 }, { 1, 5, 7, 3 } };
++         for (int f = 0; f < 6; ++f)
++         {
++            Face face;
++            face.depth = 0;
++            for (int i = 0; i < 4; ++i)
++            {
++               face.points[i] = corners[indices[f][i]];
++               face.depth += face.points[i].depth * 0.25f;
++            }
++            face.color = color * (ghost ? 0.45f : (f == 2 ? 1.0f : 0.68f));
++            face.color.a = ghost ? 85 : 235;
++            faces.push_back(face);
++         }
++      };
++      int totalRendered = 0;
++      for (int row = 0; row < count; ++row)
++      {
++         int lane = visible[row];
++         float z = row * 1.7f;
++         auto color = kColors[lane % kColors.size()];
++         line({ -9, 0, z }, { 6, 0, z }, WithAlpha(color, 80), 1.4f);
++         float pulse = 0;
++         int rendered = 0;
++         if (live)
++            for (const auto& event : mEvents)
++            {
++               if (event.lane != lane || event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 2)
++                  continue;
++               float elapsed = float((cycle - event.cycle) / mCps);
++               float hit = elapsed >= 0 ? std::exp(-elapsed * 7) : 0;
++               pulse = std::max(pulse, hit);
++               if (rendered++ >= 128 || totalRendered >= 1024)
++                  continue;
++               ++totalRendered;
++               float x = float(event.cycle - cycle) * 5;
++               float length = float(std::clamp(event.duration, 0.012, 3.0)) * 5;
++               if (mTraces)
++                  box({ x, (event.original - 24) * 0.065f + 0.3f, z - 0.25f }, { length, 0.035f, 0.055f }, color, true);
++               box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, color, false);
++            }
++         const float radius = 0.3f + pulse * 0.65f;
++         for (int segment = 0; segment < 32; ++segment)
++         {
++            float a = segment * 6.2831853f / 32, b = (segment + 1) * 6.2831853f / 32;
++            line({ std::cos(a) * radius, 0.02f, z + std::sin(a) * radius }, { std::cos(b) * radius, 0.02f, z + std::sin(b) * radius }, WithAlpha(color, int(70 + pulse * 150)), 1.2f);
++         }
++         auto lamp = project({ 0, 0.15f, z });
++         for (int glow = 3; glow >= 1; --glow)
++         {
++            ofFill();
++            ofSetColor(color, (25 + pulse * 40) / glow);
++            ofCircle(lamp.x, lamp.y, (3 + pulse * 5) * glow);
++         }
++      }
++      std::sort(faces.begin(), faces.end(), [](const Face& a, const Face& b)
++                {
++                   return a.depth > b.depth;
++                });
++      for (const auto& face : faces)
++         Polygon(face.points, face.color);
++      line({ 0, 0, -0.6f }, { 0, 0, centerZ * 2 + 0.6f }, ofColor(190, 225, 255, 200), 2);
++      ofPopMatrix(); // Restore the parent's module clip before drawing footer.
++      ofPopStyle();
++   }
++   else if (mViewMode < 5)
++   {
++      DrawEventView(visible, cycle, live, top, bottom);
++   }
++   else if (mViewMode == 8)
++   {
++      DrawControls(visible, cycle, live, top, bottom);
++   }
++   else
++   {
++      DrawAudioView(top, bottom, dt);
++   }
++   ofSetColor(110, 135, 160);
++   DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "master tap (pre gain/limiter) / lane selection does not isolate audio / display gain is visual only" : (live ? (mViewMode == 0 ? "drag: orbit / right or shift-drag: pan / wheel: zoom / code panel: scroll" : "drag: pan / wheel: zoom / code panel: scroll") : mStatus + " / start Rustel with RUSTEL_MUSIC_LINK=1"), 12, mHeight - 12, 10);
++   for (int i = 0; i < std::min(count, 12); ++i)
++   {
++      int lane = visible[i];
++      float x = 12 + i * (mWidth - 24) / std::max(1, std::min(count, 12));
++      ofSetColor(kColors[lane % kColors.size()]);
++      DrawTextNormal(mLanes[lane].id + " " + (mLanes[lane].transpose >= 0 ? "+" : "") + ofToString(mLanes[lane].transpose), x, bottom + 18);
++   }
++   const float sourceTop = bottom + 30;
++   const float sourceBottom = mHeight - 28;
++   const float sourceViewHeight = sourceBottom - sourceTop;
++   mSourceScroll = std::clamp(mSourceScroll, 0.0f, std::max(0.0f, mSourceContentHeight - sourceViewHeight));
++   ofFill();
++   ofSetColor(10, 17, 28);
++   ofRect(6, sourceTop, mWidth - 12, sourceViewHeight, 4);
++   ofPushMatrix();
++   ofClipWindow(8, sourceTop, mWidth - 16, sourceViewHeight, true);
++   float cursor = sourceTop + 18 - mSourceScroll;
++   if (!mDocument.empty())
++      cursor = DrawSourceDocument(visible, cycle, live, cursor);
++   else for (int lane : visible)
++   {
++      ofSetColor(kColors[lane % kColors.size()]);
++      DrawTextNormal(mLanes[lane].id + " / line source", 16, cursor, 10);
++      cursor += 16;
++      ofSetColor(210, 224, 240);
++      auto text = mLanes[lane].source.empty() ? "Source unavailable: restart Rustel with the updated bridge." : mLanes[lane].source;
++      auto bounds = gFontFixedWidth.DrawStringWrap(text, 11, 16, cursor, mWidth - 42);
++      cursor += std::max(16.0f, bounds.height) + 26;
++   }
++   ofPopMatrix();
++   mSourceContentHeight = cursor - (sourceTop + 18 - mSourceScroll);
++   if (mSourceContentHeight > sourceViewHeight)
++   {
++      float thumb = std::max(15.0f, sourceViewHeight * sourceViewHeight / mSourceContentHeight);
++      float offset = (sourceViewHeight - thumb) * mSourceScroll / std::max(1.0f, mSourceContentHeight - sourceViewHeight);
++      ofSetColor(85, 115, 145);
++      ofRect(mWidth - 12, sourceTop + offset, 3, thumb, 1);
++   }
++   ofPopStyle();
++}
++
++bool RustelView::InNoteField(float x, float y)
++{
++   const float bottom = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 50;
++   return !Minimized() && IsVisible() && x >= 2 && x <= mWidth - 2 && y >= 82 && y <= bottom;
++}
++
++void RustelView::OnClicked(float x, float y, bool right)
++{
++   IDrawableModule::OnClicked(x, y, right);
++   if (!InNoteField(x, y) || IsKeyHeld(' ') || (GetKeyModifiers() & kModifier_Alt))
++      return;
++   mCameraDragging = true;
++   mPanDragging = mViewMode != 0 || right || (GetKeyModifiers() & kModifier_Shift);
++   mDragButton = right ? 2 : 1;
++   mDragX = x;
++   mDragY = y;
++   if (!mPanDragging && mOrbit)
++   {
++      mYawSlider->SetValue(std::remainder(mYaw + std::sin(float(mOrbitPhase)) * 0.6f, float(TWO_PI)), gTime);
++      mOrbit = false;
++   }
++}
++
++bool RustelView::MouseMoved(float x, float y)
++{
++   IDrawableModule::MouseMoved(x, y);
++   if (!mCameraDragging)
++      return false;
++   // Bespoke dispatches moves to all modules, so a drag stays captured outside
++   // the viewport; release or loss of the pressed button ends that capture.
++   if (!TheSynth->IsMouseButtonHeld(mDragButton))
++   {
++      mCameraDragging = false;
++      return false;
++   }
++   float dx = x - mDragX, dy = y - mDragY;
++   mDragX = x;
++   mDragY = y;
++   if (mPanDragging)
++   {
++      const float height = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 132;
++      mPanX = std::clamp(mPanX + dx / mWidth, -4.0f, 4.0f);
++      mPanY = std::clamp(mPanY + dy / height, -4.0f, 4.0f);
++   }
++   else
++   {
++      mYawSlider->SetValue(std::remainder(mYaw + dx * 0.008f, float(TWO_PI)), gTime);
++      mTiltSlider->SetValue(std::clamp(mTilt + dy * 0.008f, -1.45f, 1.45f), gTime);
++   }
++   return true;
++}
++
++void RustelView::MouseReleased()
++{
++   mCameraDragging = false;
++   IDrawableModule::MouseReleased();
++}
++
++void RustelView::CheckboxUpdated(Checkbox* checkbox, double)
++{
++   if (checkbox != mSoloCheckbox) return;
++   if (mLaneId.empty() || !mLive) { mSolo = false; return; }
++   RustelLink::Solo(mSessionId, mGeneration, mLaneId, mSolo);
++}
++
++void RustelView::ButtonClicked(ClickButton* button, double time)
++{
++   if (button != mResetCamera)
++      return;
++   mPanX = mPanY = 0;
++   mOrbitPhase = 0;
++   mCameraDragging = false;
++   mOrbit = false;
++   mYawSlider->SetValue(0.35f, time);
++   mTiltSlider->SetValue(0.6f, time);
++   mZoomSlider->SetValue(1, time);
++}
++
++bool RustelView::MouseScrolled(float x, float y, float, float scrollY, bool isSmoothScroll, bool)
++{
++   if (InNoteField(x, y))
++   {
++      const float height = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 132;
++      float oldZoom = mZoom;
++      float zoom = std::clamp(oldZoom * std::exp(std::clamp(scrollY * 0.08f, -1.0f, 1.0f)), 0.2f, 5.0f);
++      // Keep the point under the cursor fixed while dollying the view.
++      float ratio = zoom / oldZoom;
++      mPanX = std::clamp(mPanX + (x - mWidth * (0.5f + mPanX)) * (1 - ratio) / mWidth, -4.0f, 4.0f);
++      mPanY = std::clamp(mPanY + (y - 82 - height * (0.65f + mPanY)) * (1 - ratio) / height, -4.0f, 4.0f);
++      mZoomSlider->SetValue(zoom, gTime);
++      return true;
++   }
++   const float sourceTop = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 20;
++   if (x < 6 || x > mWidth - 6 || y < sourceTop || y > mHeight - 28)
++      return false;
++   mSourceScroll = std::max(0.0f, mSourceScroll - scrollY * (isSmoothScroll ? 1.0f : 24.0f));
++   return true;
++}
++
++void RustelView::SaveState(FileStreamOut& out)
++{
++   out << GetModuleSaveStateRev();
++   IDrawableModule::SaveState(out);
++   out << mSessionId;
++   out << mLaneId;
++   out << mPanX;
++   out << mPanY;
++}
++void RustelView::LoadState(FileStreamIn& in, int rev)
++{
++   IDrawableModule::LoadState(in, rev);
++   LoadStateValidate(rev <= GetModuleSaveStateRev());
++   in >> mSessionId;
++   in >> mLaneId;
++   mPanX = mPanY = 0;
++   if (rev >= 1)
++   {
++      in >> mPanX;
++      in >> mPanY;
++   }
++   mCameraDragging = false;
++   mSessionIds.clear();
++   mViewMode = std::clamp(mViewMode, 0, 8);
++   mLanes.clear();
++   mEvents.clear();
++   mGeneration = -1;
++   Resize(mWidth, mHeight);
++   mAudioSequence = 0;
++   mAudioGeneration = -1;
++   mAudioScope.clear(); mAudioSpectrum.clear(); mAudioSides.clear();
++}
++
++
++float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y)
++{
++   ofSetColor(155, 175, 200);
++   DrawTextNormal("evaluated document / sounding tokens highlighted", 16, y, 10);
++   y += 18;
++   const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
++   const int columns = std::max(10, int((mWidth - 42) / charWidth));
++   size_t begin = 0;
++   int rows = 0;
++   while (begin < mDocument.size() && rows++ < 8192)
++   {
++      size_t end = begin;
++      int characters = 0;
++      while (end < mDocument.size() && mDocument[end] != '\n' && characters < columns)
++      {
++         ++end;
++         while (end < mDocument.size() && (static_cast<unsigned char>(mDocument[end]) & 0xc0) == 0x80) ++end;
++         ++characters;
++      }
++      auto row = mDocument.substr(begin, end - begin);
++      if (live && y >= 82 && y <= mHeight)
++         for (const auto& event : mEvents)
++         {
++            if (cycle < event.cycle || cycle >= event.cycle + event.duration || std::find(visible.begin(), visible.end(), event.lane) == visible.end()) continue;
++            for (const auto& range : event.context)
++            {
++               size_t a = std::max(begin, size_t(std::max(0, range.first)));
++               size_t b = std::min(end, size_t(std::max(0, range.second)));
++               if (b <= a) continue;
++               float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
++               float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
++               ofFill();
++               ofSetColor(kColors[event.lane % kColors.size()], 85);
++               ofRect(x, y - 12, width, 16);
++            }
++         }
++      if (y >= 82 && y <= mHeight)
++      {
++         ofSetColor(210, 224, 240);
++         gFontFixedWidth.DrawString(row, 11, 16, y);
++      }
++      y += 16;
++      begin = end;
++      if (begin < mDocument.size() && mDocument[begin] == '\n') ++begin;
++   }
++   return y + 16;
++}
++
++void RustelView::DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom)
++{
++   const char* keys[] = { "gain", "pan", "cutoff (Hz, log)", "resonance" };
++   const float left = 125, right = mWidth - 20;
++   const float height = (bottom - top) / 4;
++   auto xAt = [&](double at) { return left + float((at - cycle) / (2.0 / mZoom) + 0.75 + mPanX) * (right - left); };
++   ofPushMatrix();
++   ofClipWindow(2, top, mWidth - 4, bottom - top, true);
++   for (int control = 0; control < 4; ++control)
++   {
++      const float y = top + control * height;
++      double low = 0, high = 1;
++      for (const auto& event : mEvents)
++         if (event.hasControl[control] && std::find(visible.begin(), visible.end(), event.lane) != visible.end())
++         {
++            double value = control == 2 ? std::log10(std::max(1.0, event.controls[control])) : event.controls[control];
++            low = std::min(low, value); high = std::max(high, value);
++         }
++      ofSetColor(150, 175, 200);
++      DrawTextNormal(keys[control], 10, y + 18, 10);
++      DrawTextNormal("onset samples", 10, y + 34, 9);
++      ofSetColor(40, 60, 80);
++      ofLine(left, y + height - 8, right, y + height - 8);
++      ofSetColor(180, 210, 235, 100);
++      ofLine(xAt(cycle), y + 4, xAt(cycle), y + height - 8);
++      if (!live) continue;
++      for (int lane : visible)
++      {
++         std::vector<const Event*> samples;
++         for (const auto& event : mEvents)
++            if (event.lane == lane && event.hasControl[control]) samples.push_back(&event);
++         std::stable_sort(samples.begin(), samples.end(), [](const Event* a, const Event* b) { return a->cycle < b->cycle; });
++         bool previous = false;
++         float px = 0, py = 0;
++         ofSetColor(kColors[lane % kColors.size()]);
++         for (const auto* event : samples)
++         {
++            double value = control == 2 ? std::log10(std::max(1.0, event->controls[control])) : event->controls[control];
++            float x = xAt(event->cycle), ey = y + height - 12 - float((value - low) / (high - low)) * std::max(1.0f, height - 22);
++            if (previous) { ofLine(px, py, x, py); ofLine(x, py, x, ey); }
++            ofFill(); ofCircle(x, ey, 2.5f);
++            px = x; py = ey; previous = true;
++         }
++      }
++   }
++   ofPopMatrix();
++}
+diff --git a/Source/RustelView.h b/Source/RustelView.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..bbb1dadf8fb9744f8436f7f3718e262eff0bb342
+--- /dev/null
++++ b/Source/RustelView.h
+@@ -0,0 +1,90 @@
++#pragma once
++
++#include "IDrawableModule.h"
++#include "DropdownList.h"
++#include "Slider.h"
++#include "Checkbox.h"
++#include "ClickButton.h"
++#include <string>
++#include <vector>
++#include <array>
++
++class RustelView : public IDrawableModule, public IDropdownListener, public IFloatSliderListener, public IButtonListener
++{
++public:
++   RustelView();
++   static IDrawableModule* Create() { return new RustelView(); }
++   void CreateUIControls() override;
++   void Poll() override;
++   bool IsResizable() const override { return true; }
++   void Resize(float w, float h) override;
++   bool CheckNeedsDraw() override { return true; }
++   void DropdownUpdated(DropdownList* list, int oldVal, double time) override;
++   void FloatSliderUpdated(FloatSlider*, float, double) override {}
++   void ButtonClicked(ClickButton*, double) override;
++   void CheckboxUpdated(Checkbox*, double) override;
++   void MouseReleased() override;
++   void SaveState(FileStreamOut& out) override;
++   void LoadState(FileStreamIn& in, int rev) override;
++   int GetModuleSaveStateRev() const override { return 1; }
++
++private:
++   struct Lane
++   {
++      std::string id, label, source;
++      int transpose{ 0 };
++   };
++   struct Event
++   {
++      int lane{ 0 };
++      double cycle{ 0 }, duration{ 0 };
++      float original{ 48 }, pitch{ 48 }, gain{ 0.8f };
++      std::vector<std::pair<int, int>> context;
++      std::array<double, 4> controls{};
++      std::array<bool, 4> hasControl{};
++   };
++   void DrawModule() override;
++   void DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
++   void DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
++   float DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y);
++   std::string mDocument;
++   void PollAudio();
++   void DrawAudioView(float top, float bottom, double dt);
++   std::vector<float> mAudioScope, mAudioSpectrum;
++   std::vector<ofVec2f> mAudioSides;
++   std::array<float, 64> mSpectrumBars{}, mSpectrumPeaks{};
++   uint64_t mAudioSequence{ 0 }, mAudioStream{ 0 }, mAudioEpoch{ 0 };
++   int64_t mAudioGeneration{ -1 };
++   int mAudioSampleRate{ 0 };
++   double mAudioReceived{ 0 };
++   float mDisplayGain{ 4 };
++   FloatSlider* mDisplayGainSlider{ nullptr };
++   void OnClicked(float x, float y, bool right) override;
++   bool MouseMoved(float x, float y) override;
++   bool InNoteField(float x, float y);
++   bool MouseScrolled(float x, float y, float scrollX, float scrollY, bool isSmoothScroll, bool isInvertedScroll) override;
++   float mSourceScroll{ 0 }, mSourceContentHeight{ 0 };
++   DropdownList* mSessions{ nullptr };
++   DropdownList* mLanePicker{ nullptr };
++   DropdownList* mViewPicker{ nullptr };
++   int mViewMode{ 0 };
++   FloatSlider* mYawSlider{ nullptr };
++   FloatSlider* mTiltSlider{ nullptr };
++   FloatSlider* mZoomSlider{ nullptr };
++   Checkbox* mOrbitCheckbox{ nullptr };
++   Checkbox* mSoloCheckbox{ nullptr };
++   ClickButton* mResetCamera{ nullptr };
++   bool mCameraDragging{ false }, mPanDragging{ false };
++   int mDragButton{ 1 };
++   float mDragX{ 0 }, mDragY{ 0 }, mPanX{ 0 }, mPanY{ 0 };
++   std::vector<std::string> mSessionIds;
++   std::vector<Lane> mLanes;
++   std::vector<Event> mEvents;
++   std::string mSessionId, mLaneId;
++   int mSessionIndex{ -1 }, mLaneIndex{ -1 };
++   float mYaw{ 0.35f }, mTilt{ 0.6f }, mZoom{ 1 };
++   bool mOrbit{ false }, mTraces{ false }, mSolo{ false }, mLive{ false };
++   double mCycle{ 0 }, mCps{ 0.5 }, mReceived{ 0 }, mLastFrame{ 0 }, mOrbitPhase{ 0 };
++   int64_t mGeneration{ -1 };
++   std::string mStatus{ "waiting for music hub" };
++};
+diff --git a/Source/RustelViewAudio.cpp b/Source/RustelViewAudio.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1a0b889aa4d85c39edab402f8087bf65496f8a9
+--- /dev/null
++++ b/Source/RustelViewAudio.cpp
+@@ -0,0 +1,225 @@
++#include "RustelView.h"
++#include "RustelLink.h"
++#include "OpenFrameworksPort.h"
++#include <algorithm>
++#include <cmath>
++
++void RustelView::PollAudio()
++{
++   auto frames = RustelLink::Analysis();
++   auto* list = frames.getArray();
++   if (!list)
++      return;
++   for (const auto& frame : *list)
++   {
++      if (frame["session"].toString().toStdString() != mSessionId || int(frame["version"]) != 1)
++         continue;
++      uint64_t sequence = int64_t(frame["sequence"]);
++      if (sequence <= mAudioSequence)
++         continue;
++      auto* scope = frame["scope"].getArray();
++      auto* spectrum = frame["spectrum"].getArray();
++      auto* sides = frame["sides"].getArray();
++      int rate = int(frame["sample_rate"]);
++      if (!scope || !spectrum || !sides || scope->size() != 512 || spectrum->size() != 512 || sides->size() > 4096 || rate <= 0)
++         continue;
++      std::vector<float> wave, bins;
++      std::vector<ofVec2f> stereo;
++      bool valid = true;
++      for (const auto& value : *scope)
++      {
++         float v = float(value);
++         if (!std::isfinite(v))
++         {
++            valid = false;
++            break;
++         }
++         wave.push_back(v);
++      }
++      for (const auto& value : *spectrum)
++      {
++         float v = float(value);
++         if (!std::isfinite(v))
++         {
++            valid = false;
++            break;
++         }
++         bins.push_back(std::clamp(v, -120.0f, 12.0f));
++      }
++      for (const auto& pair : *sides)
++      {
++         auto* values = pair.getArray();
++         if (!values || values->size() != 2)
++         {
++            valid = false;
++            break;
++         }
++         float l = float((*values)[0]), r = float((*values)[1]);
++         if (!std::isfinite(l) || !std::isfinite(r))
++         {
++            valid = false;
++            break;
++         }
++         stereo.emplace_back(l, r);
++      }
++      if (!valid)
++         continue;
++      uint64_t stream = int64_t(frame["stream_id"]), epoch = int64_t(frame["epoch"]);
++      int64_t generation = int64_t(frame["generation"]);
++      if (stream != mAudioStream || epoch != mAudioEpoch || generation != mAudioGeneration)
++      {
++         mSpectrumBars.fill(0);
++         mSpectrumPeaks.fill(0);
++      }
++      mAudioSequence = sequence;
++      mAudioStream = stream;
++      mAudioEpoch = epoch;
++      mAudioGeneration = generation;
++      mAudioSampleRate = rate;
++      mAudioScope = std::move(wave);
++      mAudioSpectrum = std::move(bins);
++      mAudioSides = std::move(stereo);
++      mAudioReceived = juce::Time::getMillisecondCounterHiRes();
++   }
++}
++
++void RustelView::DrawAudioView(float top, float bottom, double dt)
++{
++   ofPushStyle();
++   ofPushMatrix();
++   ofClipWindow(2, top, mWidth - 4, bottom - top, true);
++   const float left = 46, right = mWidth - 20, width = right - left, edge = top + 20, height = bottom - edge - 24;
++   auto transform = [&](float x, float y)
++   {
++      float cx = mWidth * 0.5f, cy = top + (bottom - top) * 0.65f;
++      return ofVec2f(cx + (x - cx) * mZoom + mPanX * mWidth, cy + (y - cy) * mZoom + mPanY * (bottom - top));
++   };
++   auto line = [&](float x, float y, float a, float b, ofColor c, float w = 1.0f)
++   {
++      auto p = transform(x, y), q = transform(a, b);
++      ofSetColor(c);
++      ofSetLineWidth(w);
++      ofLine(p.x, p.y, q.x, q.y);
++   };
++   auto text = [&](std::string s, float x, float y, ofColor c)
++   {
++      auto p = transform(x, y);
++      ofSetColor(c);
++      DrawTextNormal(s, p.x, p.y, 10);
++   };
++   bool fresh = juce::Time::getMillisecondCounterHiRes() - mAudioReceived < 1000 && mAudioGeneration == mGeneration && mAudioSampleRate > 0;
++   if (!fresh)
++   {
++      ofSetColor(140, 165, 185);
++      DrawTextNormal("Waiting for live master audio from Rustel...", 20, int(top + 40));
++      ofPopMatrix();
++      ofPopStyle();
++      return;
++   }
++   if (mViewMode == 5)
++   {
++      for (int i = 0; i < 5; ++i)
++      {
++         float y = edge + height * i / 4;
++         line(left, y, right, y, ofColor(40, 60, 85, 140));
++         text(ofToString(1.0 - i * 0.5, 1), 8, y + 3, ofColor(110, 140, 170));
++      }
++      for (int i = 0; i < 9; ++i)
++      {
++         float x = left + width * i / 8;
++         line(x, edge, x, edge + height, ofColor(35, 55, 75, 100));
++      }
++      size_t start = 0;
++      for (size_t i = 1; i + 256 < mAudioScope.size(); ++i)
++      {
++         if (mAudioScope[i - 1] <= 0 && mAudioScope[i] > 0)
++         {
++            start = i;
++            break;
++         }
++      }
++      size_t count = std::min<size_t>(256, mAudioScope.size() - start);
++      for (size_t i = 1; i < count; ++i)
++      {
++         float x = left + width * float(i - 1) / float(count - 1), nx = left + width * float(i) / float(count - 1);
++         float y = edge + height * 0.5f - mAudioScope[start + i - 1] * mDisplayGain * height * 0.5f;
++         float ny = edge + height * 0.5f - mAudioScope[start + i] * mDisplayGain * height * 0.5f;
++         line(x, y, nx, ny, ofColor(35, 220, 190, 45), 5);
++         line(x, y, nx, ny, ofColor(100, 255, 220), 1.5f);
++      }
++      text("rising-edge trigger / display x" + ofToString(mDisplayGain, 1), left, edge + height + 15, ofColor(120, 165, 180));
++   }
++   else if (mViewMode == 6)
++   {
++      const float nyquist = mAudioSampleRate * 0.5f, minimum = 20, maximum = std::min(20000.0f, nyquist);
++      for (int db = -90; db <= 0; db += 30)
++      {
++         float y = edge + height * (1 - (db + 90) / 90.0f);
++         line(left, y, right, y, ofColor(40, 60, 85, 140));
++         text(ofToString(db), 8, y + 3, ofColor(110, 140, 170));
++      }
++      float gainDb = 20 * std::log10(mDisplayGain);
++      float smooth = 1 - std::exp(-float(dt) * 18);
++      for (int i = 0; i < 64; ++i)
++      {
++         float low = minimum * std::pow(maximum / minimum, i / 64.0f), high = minimum * std::pow(maximum / minimum, (i + 1) / 64.0f);
++         int a = std::clamp(int(low / nyquist * 512), 0, 511), b = std::clamp(int(std::ceil(high / nyquist * 512)), a + 1, 512);
++         float db = -120;
++         for (int bin = a; bin < b; ++bin)
++            db = std::max(db, mAudioSpectrum[bin]);
++         float level = std::clamp((db + gainDb + 90) / 90, 0.0f, 1.0f);
++         mSpectrumBars[i] += (level - mSpectrumBars[i]) * smooth;
++         mSpectrumPeaks[i] = std::max(mSpectrumBars[i], mSpectrumPeaks[i] - float(dt) * 0.2f);
++         auto p = transform(left + i * width / 64, edge + height * (1 - mSpectrumBars[i]));
++         ofFill();
++         ofSetColor(40 + i * 2, 220 - i, 210);
++         ofRect(p.x, p.y, std::max(1.0f, (width / 64 - 2) * mZoom), height * mSpectrumBars[i] * mZoom, 1);
++         line(left + i * width / 64, edge + height * (1 - mSpectrumPeaks[i]), left + (i + 1) * width / 64 - 2, edge + height * (1 - mSpectrumPeaks[i]), ofColor(215, 250, 255), 1);
++      }
++      for (float hz : { 20.0f, 100.0f, 1000.0f, 10000.0f })
++         if (hz < maximum)
++         {
++            float x = left + std::log(hz / minimum) / std::log(maximum / minimum) * width;
++            text(hz >= 1000 ? ofToString(hz / 1000, 0) + "k" : ofToString(hz, 0), x, edge + height + 15, ofColor(130, 165, 185));
++         }
++   }
++   else
++   {
++      if (mAudioSides.size() < 2)
++      {
++         text("No stereo analysis available", left, edge + 30, ofColor(145, 165, 190));
++         ofPopMatrix();
++         ofPopStyle();
++         return;
++      }
++      float cx = left + width * 0.5f, cy = edge + height * 0.5f, radius = height * 0.44f;
++      line(cx - radius, cy, cx + radius, cy, ofColor(55, 80, 105));
++      line(cx, cy - radius, cx, cy + radius, ofColor(55, 80, 105));
++      line(cx - radius, cy, cx, cy - radius, ofColor(35, 60, 85));
++      line(cx, cy - radius, cx + radius, cy, ofColor(35, 60, 85));
++      line(cx + radius, cy, cx, cy + radius, ofColor(35, 60, 85));
++      line(cx, cy + radius, cx - radius, cy, ofColor(35, 60, 85));
++      double ll = 0, rr = 0, lr = 0;
++      ofVec2f previous;
++      bool first = true;
++      for (size_t i = 0; i < mAudioSides.size(); ++i)
++      {
++         float l = mAudioSides[i].x, r = mAudioSides[i].y;
++         ll += l * l;
++         rr += r * r;
++         lr += l * r;
++         float side = (r - l) * 0.70710678f, mid = (l + r) * 0.70710678f;
++         ofVec2f point(cx + side * mDisplayGain * radius, cy - mid * mDisplayGain * radius);
++         if (!first)
++            line(previous.x, previous.y, point.x, point.y, ofColor(80, 235, 215, 35 + int(190 * i / mAudioSides.size())), 1.2f);
++         previous = point;
++         first = false;
++      }
++      double correlation = ll > 1e-12 && rr > 1e-12 ? std::clamp(lr / std::sqrt(ll * rr), -1.0, 1.0) : 0;
++      text("MID", cx - 10, edge + 3, ofColor(130, 165, 185));
++      text("SIDE", cx + radius + 8, cy, ofColor(130, 165, 185));
++      text("correlation " + ofToString(correlation, 2) + " / vertical = mono", left, edge + height + 15, ofColor(140, 185, 195));
++   }
++   ofPopMatrix();
++   ofPopStyle();
++}
+diff --git a/Source/RustelViewModes.cpp b/Source/RustelViewModes.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..83b8761b6d036fbd50a34675f02ed401cef8e152
+--- /dev/null
++++ b/Source/RustelViewModes.cpp
+@@ -0,0 +1,208 @@
++#include "RustelView.h"
++#include "OpenFrameworksPort.h"
++#include <algorithm>
++#include <array>
++#include <cmath>
++
++// Native event-driven views. Audio scopes need a separate analysis feed.
++void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom)
++{
++   static const std::array<ofColor, 8> colors{ { { 31, 242, 209 }, { 255, 89, 107 }, { 163, 107, 255 }, { 255, 186, 51 }, { 51, 166, 255 }, { 255, 89, 204 }, { 158, 255, 71 }, { 255, 138, 56 } } };
++   static const char* notes[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
++   const float width = mWidth - 76, height = bottom - top - 26, left = 52, edge = top + 12;
++   float low = 127, high = 0;
++   for (const auto& event : mEvents)
++   {
++      if (std::find(visible.begin(), visible.end(), event.lane) == visible.end())
++         continue;
++      if (event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 0.5)
++         continue;
++      low = std::min(low, std::min(event.pitch, mTraces ? event.original : event.pitch));
++      high = std::max(high, std::max(event.pitch, mTraces ? event.original : event.pitch));
++   }
++   if (low > high)
++   {
++      low = 36;
++      high = 84;
++   }
++   low = std::clamp(std::floor(low / 12) * 12, -24.0f, 120.0f);
++   high = std::clamp(std::max(low + 24, std::ceil((high + 1) / 12) * 12), low + 24, 144.0f);
++   auto transform = [&](float x, float y)
++   {
++      const float cx = mWidth * 0.5f, cy = top + (bottom - top) * 0.65f;
++      return ofVec2f(cx + (x - cx) * mZoom + mPanX * mWidth, cy + (y - cy) * mZoom + mPanY * (bottom - top));
++   };
++   auto line = [&](float x, float y, float a, float b, ofColor color, float thickness = 1.0f)
++   {
++      auto p = transform(x, y), q = transform(a, b);
++      ofSetColor(color);
++      ofSetLineWidth(thickness);
++      ofLine(p.x, p.y, q.x, q.y);
++   };
++   auto circle = [&](float x, float y, float radius, ofColor color, bool filled)
++   {
++      auto p = transform(x, y);
++      ofSetColor(color);
++      ofSetLineWidth(1.2f);
++      if (filled)
++         ofFill();
++      else
++         ofNoFill();
++      ofCircle(p.x, p.y, radius * mZoom);
++   };
++   auto text = [&](const std::string& label, float x, float y, ofColor color)
++   {
++      auto p = transform(x, y);
++      ofSetColor(color);
++      DrawTextNormal(label, p.x, p.y, 10);
++   };
++   auto rect = [&](float x, float y, float w, float h, ofColor color)
++   {
++      auto p = transform(x, y);
++      ofFill();
++      ofSetColor(color);
++      ofRect(p.x, p.y, w * mZoom, h * mZoom, 1);
++   };
++   auto pitchX = [&](float p)
++   {
++      return left + (p - low) / (high - low) * width;
++   };
++   auto pitchY = [&](float p)
++   {
++      return edge + height - (p - low) / (high - low) * height;
++   };
++   auto timeX = [&](double t)
++   {
++      return left + float(t - cycle + 1.5) / 2 * width;
++   };
++   auto timeY = [&](double t)
++   {
++      return edge + float(0.5 - (t - cycle)) / 2 * height;
++   };
++   const float cx = left + width * 0.5f, cy = edge + height * 0.5f, radius = std::min(width, height) * 0.43f;
++   auto spiral = [&](double t, float p)
++   {
++      float age = float(t - cycle);
++      float r = radius * (0.12f + (age + 1.5f) * 0.39f + (p - low) / (high - low) * 0.08f);
++      float angle = age * TWO_PI - PI * 0.5f;
++      return ofVec2f(cx + std::cos(angle) * r, cy + std::sin(angle) * r);
++   };
++   auto wheel = [&](float p)
++   {
++      float angle = std::fmod(p, 12.0f) / 12 * TWO_PI - PI * 0.5f;
++      float r = radius * (0.3f + 0.65f * (p - low) / (high - low));
++      return ofVec2f(cx + std::cos(angle) * r, cy + std::sin(angle) * r);
++   };
++   ofPushStyle();
++   ofPushMatrix();
++   ofClipWindow(2, top, mWidth - 4, bottom - top, true);
++   if (mViewMode <= 2)
++   {
++      for (int pitch = int(low); pitch <= int(high); ++pitch)
++      {
++         bool octave = pitch % 12 == 0;
++         auto color = ofColor(35, 55, 78, octave ? 170 : 65);
++         if (mViewMode == 1)
++         {
++            float y = pitchY(float(pitch));
++            line(left, y, left + width, y, color);
++            if (octave)
++               text(std::string("C") + ofToString(pitch / 12 - 1), left - 30, y + 3, ofColor(120, 150, 175));
++         }
++         else
++         {
++            float x = pitchX(float(pitch));
++            line(x, edge, x, edge + height, color);
++            if (octave)
++               text(std::string("C") + ofToString(pitch / 12 - 1), x, edge + height + 12, ofColor(120, 150, 175));
++         }
++      }
++      for (int beat = -6; beat <= 2; ++beat)
++      {
++         double t = (std::floor(cycle * 4) + beat) / 4;
++         if (mViewMode == 1)
++            line(timeX(t), edge, timeX(t), edge + height, ofColor(40, 65, 85, 100));
++         else
++            line(left, timeY(t), left + width, timeY(t), ofColor(40, 65, 85, 100));
++      }
++   }
++   else if (mViewMode == 3)
++   {
++      auto previous = spiral(cycle - 1.5, low);
++      for (int i = 1; i <= 160; ++i)
++      {
++         auto next = spiral(cycle - 1.5 + i / 80.0, low);
++         line(previous.x, previous.y, next.x, next.y, ofColor(55, 80, 110, 140));
++         previous = next;
++      }
++      auto head = spiral(cycle, low);
++      circle(head.x, head.y, 5, ofColor(210, 240, 255), true);
++   }
++   else
++   {
++      for (int ring = 0; ring < 4; ++ring)
++         circle(cx, cy, radius * (0.3f + ring * 0.22f), ofColor(40, 65, 90, 170), false);
++      for (int pitch = 0; pitch < 12; ++pitch)
++      {
++         float a = pitch * TWO_PI / 12 - PI * 0.5f;
++         line(cx, cy, cx + std::cos(a) * radius, cy + std::sin(a) * radius, ofColor(40, 65, 90, 120));
++         text(notes[pitch], cx + std::cos(a) * (radius + 15) - 5, cy + std::sin(a) * (radius + 15) + 3, ofColor(145, 175, 200));
++      }
++   }
++   int rendered = 0;
++   if (live)
++      for (const auto& event : mEvents)
++      {
++         if (std::find(visible.begin(), visible.end(), event.lane) == visible.end() || event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 0.5)
++            continue;
++         if (rendered++ >= 1024)
++            break;
++         bool sounding = event.cycle <= cycle && event.cycle + event.duration > cycle;
++         float elapsed = float((cycle - event.cycle) / mCps);
++         float hit = elapsed >= 0 ? std::exp(-elapsed * 7) : 0;
++         for (bool source : { true, false })
++         {
++            if (source && !mTraces)
++               continue;
++            float pitch = source ? event.original : event.pitch;
++            auto color = colors[event.lane % colors.size()];
++            color.a = source ? 65 : (sounding ? 255 : 150);
++            if (mViewMode == 1)
++            {
++               float h = std::max(2.0f, height / (high - low) * 0.75f);
++               rect(timeX(event.cycle), pitchY(pitch) - h * 0.5f, std::max(2.0f, float(event.duration) * width / 2), source ? 1.5f : h, color);
++            }
++            else if (mViewMode == 2)
++            {
++               float w = std::max(3.0f, width / (high - low) * 0.65f);
++               rect(pitchX(pitch) - w * 0.5f, timeY(event.cycle + event.duration), source ? 1.5f : w, std::max(3.0f, float(event.duration) * height / 2), color);
++            }
++            else if (mViewMode == 3)
++            {
++               auto p = spiral(event.cycle, pitch);
++               auto previous = p;
++               double duration = std::clamp(event.duration, 0.01, 0.5);
++               for (int i = 1; i <= 12; ++i)
++               {
++                  auto next = spiral(event.cycle + duration * i / 12, pitch);
++                  line(previous.x, previous.y, next.x, next.y, color, source ? 0.7f : 2.0f);
++                  previous = next;
++               }
++               circle(p.x, p.y, source ? 2 : 3 + hit * 5, color, !source);
++            }
++            else
++            {
++               auto p = wheel(pitch);
++               if (sounding && !source)
++                  line(cx, cy, p.x, p.y, color, 1.5f);
++               circle(p.x, p.y, source ? 3 : 3 + hit * 7 + event.gain * 2, color, !source);
++            }
++         }
++      }
++   if (mViewMode == 1)
++      line(timeX(cycle), edge, timeX(cycle), edge + height, ofColor(210, 240, 255, 220), 1.5f);
++   if (mViewMode == 2)
++      line(left, timeY(cycle), left + width, timeY(cycle), ofColor(210, 240, 255, 220), 1.5f);
++   ofPopMatrix();
++   ofPopStyle();
++}

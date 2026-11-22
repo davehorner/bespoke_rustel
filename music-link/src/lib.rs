@@ -68,7 +68,16 @@ pub struct Event {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct LaneAudioStream {
+    pub mapping: String,
+    /// Stable slots are never reassigned during a session, including retired lanes.
+    pub lanes: std::collections::BTreeMap<String, u8>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_audio: Option<LaneAudioStream>,
     #[serde(default)]
     pub solo_lane: Option<String>,
     /// Exact evaluated document; context ranges are UTF-8 byte offsets here.

@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "name": "BespokeSynth",
+      "url": "https://github.com/BespokeSynth/BespokeSynth.git",
+      "base": "5eef6c04e9cf58852a5a78e2167ce0a4905e6588",
+      "backup_commit": "6be061cbd336e24545c8a09d8ffc3d20d37b5249",
+      "files": [
+        {
+          "path": "Source/CMakeLists.txt",
+          "sha256": "f95c9663f9edf57679efaba07fccb089549ebac9b3018f657e4bb51be21c234a"
+        },
+        {
+          "path": "Source/ModuleFactory.cpp",
+          "sha256": "30efd4d68b183161d5bd14133f3f8081f73da665f6fc98f9b84d59aa18681552"
+        },
+        {
+          "path": "Source/RustelAudio.cpp",
+          "sha256": "43b8ad8f055d371209411d660e5043d5c268489f1719405d8f652d1c103721ef"
+        },
+        {
+          "path": "Source/RustelAudio.h",
+          "sha256": "c3009aa5895fb43cd9bb22fe5aa5f486078a1b328ad8222c1847d021585e96b1"
+        },
+        {
+          "path": "Source/RustelLink.h",
+          "sha256": "bad4764c09b053a9a01b6875becfbda8f921f24b787983b124c71d1200c32707"
+        },
+        {
+          "path": "Source/RustelPattern.cpp",
+          "sha256": "d61ed6fc2f28aa44af92da7514945316cf5a5f97d4639fcf3ce597f3d1139728"
+        },
+        {
+          "path": "Source/RustelPattern.h",
+          "sha256": "abcc5d3d298394b65528cb165d42fcd4386f5de67149609d05ac4d44ef60ad1c"
+        },
+        {
+          "path": "Source/RustelView.cpp",
+          "sha256": "c3238111739caa1c94ce41bbe4da007072afdac1ed70f8140def06ce78f3c6a4"
+        },
+        {
+          "path": "Source/RustelView.h",
+          "sha256": "a3cc3d2be9fd27b534e81b5e371267f93e9bff2dd75fc00ffe481c8ae71f03f8"
+        },
+        {
+          "path": "Source/RustelViewAudio.cpp",
+          "sha256": "bb2278887d4b504f1c5b4dd9c0b266b490f0d0755e1ba9c21af9393080cee6d9"
+        },
+        {
+          "path": "Source/RustelViewModes.cpp",
+          "sha256": "6150d12b7cfa502fb2ee3ba082cd9617f4ba522cb8f64eda42cbbf956f45554e"
+        }
+      ],
+      "patch_sha256": "c43ef9469896e0f030567047b9f55824923772755e8097c37ee3288de16ed1ce",
+      "result_tree": "385fec2678d8124a96f87ef2958402b8bf26cfe4"
+    },
+    {
+      "name": "rustel",
+      "url": "https://github.com/davehorner/rustel.git",
+      "base": "f5646b04358c3dffca77c65ac41e05134a3707ca",
+      "backup_commit": "5afdbb4757fb74f2a63cbd042151edabb6bfb9aa",
+      "files": [
+        {
+          "path": "Cargo.lock",
+          "sha256": "252a41e608578c996e876e57fcc6ee5897f61e9cfdb4f7d1038d9d5b149c08d1"
+        },
+        {
+          "path": "crates/audio/Cargo.toml",
+          "sha256": "510ea9b8f1812f65b77674ba334b88c55db397acc52a60b7a17bcd9e991df1c8"
+        },
+        {
+          "path": "crates/audio/src/device.rs",
+          "sha256": "ac6e22ac914bbc6a834c03c332e921c9e939abeba8922d56b99d1e514b7198a4"
+        },
+        {
+          "path": "crates/audio/src/device/callback.rs",
+          "sha256": "dbe749bcc0bdb117da8d7e68cde67209321e62a0ec510378f4c75071966cb226"
+        },
+        {
+          "path": "crates/audio/src/device/control.rs",
+          "sha256": "30f889f392c07a1fd8fb7a023a16ff0444a3074cbb5923b0306e2897fcc7a6bd"
+        },
+        {
+          "path": "crates/audio/src/device/stream.rs",
+          "sha256": "b3f6bf0cc49a048ac6e6decf07e6cb5d2b37c35e12c0c8ce4c60e8b44b7b4446"
+        },
+        {
+          "path": "crates/audio/src/lane_audio.rs",
+          "sha256": "60dfa0561e26d62a607f6738c762b3b3c5de960c4bf6385f3302c709f09b4d34"
+        },
+        {
+          "path": "crates/audio/src/lib.rs",
+          "sha256": "a78c20c638e1e4443133b651ae42e5dbcc2210dbd10548cc13744e9735902a18"
+        },
+        {
+          "path": "crates/audio/src/live.rs",
+          "sha256": "1385d92d2cfdfd49bee1d813d4fdb0d336ac4e3405056bc1c26338e283337f76"
+        },
+        {
+          "path": "crates/cli/Cargo.toml",
+          "sha256": "dd1d373c4c4c5e4d965aeabbe2b76b65ee426e79412c40cf428dd96dd0d502d7"
+        },
+        {
+          "path": "crates/cli/src/live.rs",
+          "sha256": "079d08c4c0df99e95e40b68d02b28fd837853494f1617ae3f524dfb80cd0b179"
+        },
+        {
+          "path": "crates/core/src/context_keys.rs",
+          "sha256": "6ababd316fe8087c63321c5fc20bbcf6b1cdd0218fa152cada81906ac06d46a2"
+        },
+        {
+          "path": "crates/core/src/lib.rs",
+          "sha256": "47214026a5498fea5459ea1c37df76b6501ce5664996b080ad7a2fce155326eb"
+        },
+        {
+          "path": "crates/jsruntime/src/install/repl/lanes.rs",
+          "sha256": "2eb36de1e7d7c42e405e3b382ccdbd8584932bbce8d16d4d3e3e58b1a24392e0"
+        },
+        {
+          "path": "crates/runtime/Cargo.toml",
+          "sha256": "e7adedab7df6068a758ffca620bf6576ecd1a5ed038a6fdb4f420ffbc726df7e"
+        },
+        {
+          "path": "crates/runtime/examples/music_link.rs",
+          "sha256": "c3fb677455421ae88325e90169212b3676c7f6d95264b0a6e9baa83332d238ff"
+        },
+        {
+          "path": "crates/runtime/src/session.rs",
+          "sha256": "a2ce914935a3b20a904da80c373a9c1e654f45146b534f68a1b04c2470d0120a"
+        },
+        {
+          "path": "crates/runtime/src/session/music.rs",
+          "sha256": "753eaca2ecdd395f983e02410d22f0db12140a8c7972874c7a3b3a314cdaa525"
+        },
+        {
+          "path": "crates/runtime/src/session/scheduling.rs",
+          "sha256": "c9a0758680f0766875f20dc968307afd7d308b736b7d0a3c8100b1315e059e42"
+        },
+        {
+          "path": "crates/runtime/src/ui_events.rs",
+          "sha256": "03413d8c8c5e25df44cb431f3a7420e8ea8faea1ca25771f03a8e71d4e9b24e7"
+        },
+        {
+          "path": "crates/runtime/src/vst/lanes.rs",
+          "sha256": "72b90387fcdeef8df7b4d023e2686965b88acbdec2a317b058ed12ee52bd0e47"
+        },
+        {
+          "path": "crates/runtime/tests/music_telemetry.rs",
+          "sha256": "8123f21e7c23e56247634fbb52e4592e8f2ecf42be51a28040dc6a1b2b62775e"
+        },
+        {
+          "path": "crates/scheduler/src/lib.rs",
+          "sha256": "81bb8401f6968d169857908bce1663adade166ecb1c3c02ffcf8fb80f12d7617"
+        },
+        {
+          "path": "crates/studio/Cargo.toml",
+          "sha256": "8c8e0637d970c151b5e8f9b404fce5977fefa5944bcbd3923820170c8ecf0438"
+        },
+        {
+          "path": "crates/studio/src/engine/ui_state.rs",
+          "sha256": "778ef3a33b833a161c5811e71a1bfd3266a7bd9fe125a069c01bd3afdc36d6bd"
+        }
+      ],
+      "patch_sha256": "145dfb78d95717395c0eba5bf61a71655a84d88bcae5efe178fd2feb0a6b04a0",
+      "result_tree": "f09b43dca3d4fcf7688144dac5c2df9b36466fda"
+    },
+    {
+      "name": "nightshade-viewer",
+      "url": "https://github.com/matthewjberger/nightshade-viewer.git",
+      "base": "6c405d3655dc1683507aae67046a811ea8811274",
+      "backup_commit": "6bfe8305c646aa2ad3b444a0625e49b22d96b4cd",
+      "files": [
+        {
+          "path": "Cargo.lock",
+          "sha256": "5de4230b2a3015406c03c7782f33d440690d17f1d64152aa5ea7a84cd169d8d7"
+        },
+        {
+          "path": "Cargo.toml",
+          "sha256": "14f4d49419d65e242aec5e31759336bffed5b100f7913bee5775b0d0a30e2cf3"
+        },
+        {
+          "path": "protocol/Cargo.toml",
+          "sha256": "4416b3fe7b7fae3df781e518a81d00a2de8dadfd109a107afc6b50cf0e77f2d3"
+        },
+        {
+          "path": "protocol/src/lib.rs",
+          "sha256": "a2d5f78078c4b0c4b06fd27c9a2cf66f84c23bd264f5f88aa3027ac788684b70"
+        },
+        {
+          "path": "runtime/worker.js",
+          "sha256": "5f26252df76aa329c51b1ad0855f75b43cb55a74db851d3cd301bdb87c18c823"
+        },
+        {
+          "path": "src/app.rs",
+          "sha256": "bb337cc1ab69de3281dccd9f583a3951f5d332d611b7e912479e2acfb600a94e"
+        },
+        {
+          "path": "src/bridge.rs",
+          "sha256": "e0e77a249f0b2853a4ffe75d0620d517dcc6ab5e95a5db96bc671327279f20d3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "3ffe66f01e2a068edd0056f409339028c47f714945f7dbf556597f2bf9ca549e"
+        },
+        {
+          "path": "src/music.rs",
+          "sha256": "85a23ba4805d5c663c82d85a5d2c8dd64d840111ef8aa3676ce5e41fb960a35a"
+        },
+        {
+          "path": "src/music_canvas.rs",
+          "sha256": "f0677bce1e48bd60495deb9d678cf2ddffa988f2146b4cf3328a43823d416ccf"
+        },
+        {
+          "path": "src/music_geometry.rs",
+          "sha256": "142e03d7e19088a49e7ae09fccf8f0c27185428b9c1672b73b7d0b7945e884b4"
+        },
+        {
+          "path": "src/music_source.rs",
+          "sha256": "e341088990834e4c9cc29cdcdeab94c8faeb4e9004f43b81cc47d27949a4ec7a"
+        },
+        {
+          "path": "src/state.rs",
+          "sha256": "eac27177a7c695d3ecf6a979f363d1b05fa8ba20ad1cbdbd5d07adbe297beafe"
+        },
+        {
+          "path": "worker/src/lib.rs",
+          "sha256": "f7241ad4233911b6ef4172aee9dfb47ae41de01d70be3b4b1e3178748f494580"
+        },
+        {
+          "path": "worker/src/music.rs",
+          "sha256": "3a102889dd7972addfdebfa67a851c9614f0555cd922dafe17ca191af2f1c6a3"
+        },
+        {
+          "path": "worker/src/state.rs",
+          "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
+        }
+      ],
+      "patch_sha256": "fb00bafd8a910ae828965d6a113ad9cf143536d64d5353720ee201459c1e8cd9",
+      "result_tree": "d2e234ff027caf1b07a518eae5702395a7a51d04"
+    },
+    {
+      "name": "hearsay",
+      "url": "https://github.com/matthewjberger/hearsay.git",
+      "base": "033cf8ba3ef87614f45ac397d5cb940898433a5d",
+      "backup_commit": "033cf8ba3ef87614f45ac397d5cb940898433a5d",
+      "files": [],
+      "result_tree": "4afadbbaacf3233936cf1597a17783bcd70b8565"
+    }
+  ]
+}

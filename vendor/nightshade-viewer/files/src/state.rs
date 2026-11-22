@@ -1,0 +1,183 @@
+use leptos::prelude::*;
+use protocol::{
+    ClipInfo, EntityDetail, GizmoKind, KhronosEntry, ModelStats, MorphInfo, PbrDebug,
+    PolyhavenEntry, SceneNode, ShadingMode, Tonemap,
+};
+
+/// Which asset browser overlay, if any, is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Browser {
+    Closed,
+    Khronos,
+    Hdris,
+    Models,
+}
+
+/// Which tab the left panel shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanelTab {
+    Scene,
+    Render,
+    Stats,
+}
+
+/// Khronos glTF-Validator result for a dropped model.
+#[derive(Clone, Copy)]
+pub struct Validation {
+    pub errors: u32,
+    pub warnings: u32,
+}
+
+/// All page state, grouped as signals. `Copy`, so it threads into every
+/// component and closure without cloning.
+#[derive(Clone, Copy)]
+pub struct ViewerState {
+    pub music: RwSignal<Option<music_link::Snapshot>>,
+    pub music_mode: RwSignal<u8>,
+    pub music_lane: RwSignal<String>,
+    pub music_ghosts: RwSignal<bool>,
+    pub music_control_status: RwSignal<String>,
+    pub music_audio: RwSignal<Option<music_link::AudioFrame>>,
+    pub music_received: RwSignal<f64>,
+    pub music_audio_received: RwSignal<f64>,
+    pub render_error: RwSignal<String>,
+    pub render_heartbeat: RwSignal<f64>,
+    pub music_status: RwSignal<String>,
+    pub music_session: RwSignal<String>,
+    pub music_sessions: RwSignal<Vec<String>>,
+    pub context: RwSignal<String>,
+    pub adapter: RwSignal<String>,
+    pub fps: RwSignal<f32>,
+    pub scene: RwSignal<Vec<SceneNode>>,
+    pub selected: RwSignal<Option<EntityDetail>>,
+    pub loading: RwSignal<Option<String>>,
+    pub khronos: RwSignal<Vec<KhronosEntry>>,
+    pub hdris: RwSignal<Vec<PolyhavenEntry>>,
+    pub models: RwSignal<Vec<PolyhavenEntry>>,
+    pub browser: RwSignal<Browser>,
+    pub gizmo_mode: RwSignal<GizmoKind>,
+    pub camera_basis: RwSignal<[[f32; 3]; 3]>,
+    pub resolution: RwSignal<u32>,
+    pub grid: RwSignal<bool>,
+    pub turntable: RwSignal<bool>,
+    pub ui_hidden: RwSignal<bool>,
+    pub dragging: RwSignal<bool>,
+    pub grabbing: RwSignal<bool>,
+    pub ready: RwSignal<bool>,
+    pub scene_open: RwSignal<bool>,
+    pub inspector_open: RwSignal<bool>,
+    pub add_open: RwSignal<bool>,
+    pub hint_open: RwSignal<bool>,
+    pub tab: RwSignal<PanelTab>,
+    pub stats: RwSignal<Option<ModelStats>>,
+    pub clips: RwSignal<Vec<ClipInfo>>,
+    pub variants: RwSignal<Vec<String>>,
+    pub active_variant: RwSignal<Option<String>>,
+    pub morphs: RwSignal<Vec<MorphInfo>>,
+    pub anim_clip: RwSignal<Option<u32>>,
+    pub anim_playing: RwSignal<bool>,
+    pub anim_time: RwSignal<f32>,
+    pub anim_duration: RwSignal<f32>,
+    pub anim_speed: RwSignal<f32>,
+    pub anim_loop: RwSignal<bool>,
+    pub shading: RwSignal<ShadingMode>,
+    pub pbr_debug: RwSignal<PbrDebug>,
+    pub show_normals: RwSignal<bool>,
+    pub show_bounds: RwSignal<bool>,
+    pub show_skeleton: RwSignal<bool>,
+    pub show_sky: RwSignal<bool>,
+    pub exposure: RwSignal<f32>,
+    pub tonemap: RwSignal<Tonemap>,
+    pub validation: RwSignal<Option<Validation>>,
+}
+
+impl ViewerState {
+    pub fn new() -> Self {
+        Self {
+            music: RwSignal::new(None),
+            music_mode: RwSignal::new(0),
+            music_lane: RwSignal::new(String::new()),
+            music_ghosts: RwSignal::new(false),
+            music_control_status: RwSignal::new(String::new()),
+            music_audio: RwSignal::new(None),
+            music_received: RwSignal::new(0.0),
+            music_audio_received: RwSignal::new(0.0),
+            render_error: RwSignal::new(String::new()),
+            render_heartbeat: RwSignal::new(js_sys::Date::now()),
+            music_status: RwSignal::new("Waiting for music hub".into()),
+            music_session: RwSignal::new(String::new()),
+            music_sessions: RwSignal::new(Vec::new()),
+            context: RwSignal::new("connecting…".to_string()),
+            adapter: RwSignal::new(String::new()),
+            fps: RwSignal::new(0.0),
+            scene: RwSignal::new(Vec::new()),
+            selected: RwSignal::new(None),
+            loading: RwSignal::new(None),
+            khronos: RwSignal::new(Vec::new()),
+            hdris: RwSignal::new(Vec::new()),
+            models: RwSignal::new(Vec::new()),
+            browser: RwSignal::new(Browser::Closed),
+            gizmo_mode: RwSignal::new(GizmoKind::Translate),
+            camera_basis: RwSignal::new([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+            resolution: RwSignal::new(2),
+            grid: RwSignal::new(true),
+            turntable: RwSignal::new(false),
+            ui_hidden: RwSignal::new(false),
+            dragging: RwSignal::new(false),
+            grabbing: RwSignal::new(false),
+            ready: RwSignal::new(false),
+            scene_open: RwSignal::new(false),
+            inspector_open: RwSignal::new(false),
+            add_open: RwSignal::new(false),
+            hint_open: RwSignal::new(!hint_seen()),
+            tab: RwSignal::new(PanelTab::Scene),
+            stats: RwSignal::new(None),
+            clips: RwSignal::new(Vec::new()),
+            variants: RwSignal::new(Vec::new()),
+            active_variant: RwSignal::new(None),
+            morphs: RwSignal::new(Vec::new()),
+            anim_clip: RwSignal::new(None),
+            anim_playing: RwSignal::new(false),
+            anim_time: RwSignal::new(0.0),
+            anim_duration: RwSignal::new(0.0),
+            anim_speed: RwSignal::new(1.0),
+            anim_loop: RwSignal::new(true),
+            shading: RwSignal::new(ShadingMode::Rendered),
+            pbr_debug: RwSignal::new(PbrDebug::Off),
+            show_normals: RwSignal::new(false),
+            show_bounds: RwSignal::new(false),
+            show_skeleton: RwSignal::new(false),
+            show_sky: RwSignal::new(true),
+            exposure: RwSignal::new(1.0),
+            tonemap: RwSignal::new(Tonemap::Aces),
+            validation: RwSignal::new(None),
+        }
+    }
+}
+
+impl Default for ViewerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Key under which the one-time onboarding hint records that it has been seen.
+const HINT_KEY: &str = "nightshade_hint_seen";
+
+fn local_storage() -> Option<web_sys::Storage> {
+    web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+}
+
+/// Whether the onboarding hint has already been dismissed on this browser.
+pub fn hint_seen() -> bool {
+    local_storage()
+        .and_then(|storage| storage.get_item(HINT_KEY).ok().flatten())
+        .is_some()
+}
+
+/// Records that the onboarding hint has been dismissed so it stays hidden.
+pub fn mark_hint_seen() {
+    if let Some(storage) = local_storage() {
+        let _ = storage.set_item(HINT_KEY, "1");
+    }
+}

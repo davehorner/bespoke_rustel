@@ -5,6 +5,7 @@ param(
     [switch]$Web,
     [int]$WebPort = 18765,
     [switch]$Silent,
+    [switch]$LaneAudio,
     [switch]$Build,
     [switch]$Status,
     [switch]$Stop
@@ -160,13 +161,18 @@ try {
             $null = Ensure-Process 'hub' $hubExe @() @('music-hub') @($hubExe)
         }
         $previousLink = $env:RUSTEL_MUSIC_LINK
+        $previousLaneAudio = $env:RUSTEL_LANE_AUDIO
         $env:RUSTEL_MUSIC_LINK = '1'
+        if ($LaneAudio) { $env:RUSTEL_LANE_AUDIO = '1' }
         try {
             $arguments = @('play', $Score, '--watch', '--no-update-check', '--no-input')
             if ($Silent) { $arguments += @('--output', 'silent') }
             $null = Ensure-Process 'rustel' $rustelExe $arguments @('rustel') @($rustelExe)
-        } finally { $env:RUSTEL_MUSIC_LINK = $previousLink }
+        } finally { $env:RUSTEL_MUSIC_LINK = $previousLink; $env:RUSTEL_LANE_AUDIO = $previousLaneAudio }
         Wait-Until { (Get-HubState).sessions.Count -gt 0 } 20 "Rustel is not publishing lanes. If reusing Studio, evaluate its score; otherwise inspect $logDirectory/rustel-error.log (audio device or score error)."
+        if ($LaneAudio) {
+            Wait-Until { @((Get-HubState).sessions | Where-Object { $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Lane audio currently requires Windows."
+        }
 
         $preferences = Join-Path $PSScriptRoot 'native-view-prefs.json'
         if (!(Test-Path -LiteralPath $preferences)) {

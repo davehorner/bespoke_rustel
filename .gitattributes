@@ -10,3 +10,7 @@
 *.ps1 text eol=lf
 *.rs text eol=lf
 *.mjs text eol=lf
+
+# Vendor snapshots and their checksums preserve exact upstream/workspace bytes.
+vendor/**/files/** -text whitespace=cr-at-eol
+vendor/**/changes.patch -text -whitespace

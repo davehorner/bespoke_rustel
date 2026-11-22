@@ -1,3 +1,3 @@
 @echo off
-pwsh -NoProfile -File "%~dp0music-link\start.ps1" %*
+pwsh -NoProfile -File "%~dp0music-link\start.ps1" -LaneAudio %*
 if errorlevel 1 pause

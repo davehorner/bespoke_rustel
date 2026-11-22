@@ -1,0 +1,1168 @@
+include(cmake/lib.cmake)
+include(cmake/versiontools.cmake)
+if(BESPOKE_SYSTEM_ABLETONLINK)
+    find_package(AbletonLink NAMES AbletonLink ableton-link link REQUIRED)
+else()
+    include(../libs/ableton-link/AbletonLinkConfig.cmake)
+endif()
+
+set(BESPOKE_PLIST_TO_MERGE "")
+set(BESPOKE_APP_ICON ${CMAKE_SOURCE_DIR}/bespoke_icon.png)
+set(BESPOKE_DOCUMENT_EXTENSIONS .bsk)
+set(BESPOKE_BUNDLE_ID com.ryanchallinor.bespokesynth)
+if(BESPOKE_IOS)
+    # an App ID can only belong to one Apple developer team, so builds signed by other teams need their own.
+    # the default is derived from the team id, which makes it unique to whoever is building
+    set(BESPOKE_IOS_BUNDLE_ID "" CACHE STRING "Bundle identifier for the iOS app. Defaults to com.<team id>.bespokesynth")
+    option(BESPOKE_IOS_LINK_MULTICAST "Request the multicast networking entitlement, which Ableton Link needs to find peers. Apple must grant it to your team first, or signing fails" OFF)
+    if(BESPOKE_IOS_BUNDLE_ID)
+        set(BESPOKE_BUNDLE_ID ${BESPOKE_IOS_BUNDLE_ID})
+    elseif(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM)
+        string(TOLOWER "${CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM}" BESPOKE_TEAM_LOWER)
+        set(BESPOKE_BUNDLE_ID com.${BESPOKE_TEAM_LOWER}.bespokesynth)
+    else()
+        set(BESPOKE_BUNDLE_ID com.example.bespokesynth)
+        message(WARNING "No signing team set. Pass -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=<your team id> (or -DBESPOKE_IOS_BUNDLE_ID) so the app can be signed")
+    endif()
+    message(STATUS "iOS bundle id: ${BESPOKE_BUNDLE_ID}")
+
+    # iOS needs document types declared by type rather than extension, so that's done in the plist below instead
+    set(BESPOKE_DOCUMENT_EXTENSIONS "")
+    # our own asset catalog instead of icons generated from ICON_BIG: JUCE writes its icons through CoreGraphics,
+    # which always adds an alpha channel, and App Store Connect rejects a 1024px icon with one.
+    # AppIcon.png is rendered from scripts/ios/bespoke_icon_ios.svg; Xcode derives the smaller sizes from it
+    set(BESPOKE_IOS_XCASSETS ${CMAKE_SOURCE_DIR}/scripts/ios/Images.xcassets)
+    # CFBundleVersion. App Store Connect needs it to increase with every upload of the same version, so default to the
+    # configure time (up to 3 dot-separated integers allowed). Reconfigure before archiving, or pass -DBESPOKE_IOS_BUILD_NUMBER
+    if(NOT BESPOKE_IOS_BUILD_NUMBER)
+        string(TIMESTAMP BESPOKE_IOS_BUILD_NUMBER "%Y.%m%d.%H%M" UTC)
+    endif()
+    # CFBundleDisplayName: name shown under the home screen icon
+    # UTExportedTypeDeclarations: iOS file pickers filter by type, not extension, so without declaring
+    # types for our extensions, .bsk/.bskt files show up greyed out in the load dialog
+    # CFBundleDocumentTypes + LSSupportsOpeningDocumentsInPlace: lets .bsk files be opened in bespoke from other apps
+    # UIApplicationSupportsIndirectInputEvents: makes mouse and trackpad clicks identifiable, rather than looking like finger touches
+    # NSLocalNetworkUsageDescription: shown when iOS asks for local network access, which Ableton Link uses to find peers
+    # ITSAppUsesNonExemptEncryption: only OS-provided encryption (HTTPS) is used, which is exempt; without this key
+    # App Store Connect holds every build until the export compliance question is answered
+    set(BESPOKE_PLIST_TO_MERGE "<plist><dict>
+        <key>CFBundleDisplayName</key><string>bespoke</string>
+        <key>ITSAppUsesNonExemptEncryption</key><false/>
+        <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+        <key>NSLocalNetworkUsageDescription</key><string>bespoke uses the local network to sync tempo with other devices over Ableton Link.</string>
+        <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+        <key>CFBundleDocumentTypes</key>
+        <array>
+            <dict>
+                <key>CFBundleTypeName</key><string>bespoke savestate</string>
+                <key>CFBundleTypeRole</key><string>Editor</string>
+                <key>LSHandlerRank</key><string>Owner</string>
+                <key>LSItemContentTypes</key><array><string>com.ryanchallinor.bespokesynth.bsk</string></array>
+            </dict>
+        </array>
+        <key>UTExportedTypeDeclarations</key>
+        <array>
+            <dict>
+                <key>UTTypeIdentifier</key><string>com.ryanchallinor.bespokesynth.bsk</string>
+                <key>UTTypeDescription</key><string>bespoke savestate</string>
+                <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+                <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>bsk</string></array></dict>
+            </dict>
+            <dict>
+                <key>UTTypeIdentifier</key><string>com.ryanchallinor.bespokesynth.bskt</string>
+                <key>UTTypeDescription</key><string>bespoke template</string>
+                <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+                <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>bskt</string></array></dict>
+            </dict>
+        </array>
+    </dict></plist>")
+endif()
+
+juce_add_gui_app(BespokeSynth
+    PRODUCT_NAME BespokeSynth
+    ICON_BIG ${BESPOKE_APP_ICON}
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_ENABLED     TRUE
+    BLUETOOTH_PERMISSION_ENABLED  TRUE
+    FILE_SHARING_ENABLED          TRUE
+    DOCUMENT_BROWSER_ENABLED      TRUE
+    DOCUMENT_EXTENSIONS           ${BESPOKE_DOCUMENT_EXTENSIONS}
+    BUNDLE_ID                     ${BESPOKE_BUNDLE_ID}
+    PLUGINHOST_AU                 ${BESPOKE_ENABLE_PLUGIN_HOSTING}
+
+    # iOS only
+    BACKGROUND_AUDIO_ENABLED      TRUE
+    STATUS_BAR_HIDDEN             TRUE
+    REQUIRES_FULL_SCREEN          TRUE
+    IPHONE_SCREEN_ORIENTATIONS    UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    PLIST_TO_MERGE                "${BESPOKE_PLIST_TO_MERGE}"
+    CUSTOM_XCASSETS_FOLDER        "${BESPOKE_IOS_XCASSETS}"
+    BUILD_VERSION                 "${BESPOKE_IOS_BUILD_NUMBER}"
+    )
+
+if(BESPOKE_IOS)
+    # replaces the empty entitlements file that juce generates.
+    # inter-app-audio: without it, iOS hides third-party AUv3 extensions from the app (AudioComponentFindNext only returns
+    # apple's built-in units), so plugin hosting finds nothing useful.
+    # multicast: Ableton Link finds peers over multicast, which iOS blocks without this entitlement. Apple grants it per
+    # team, so it also has to be enabled on the App ID for signing to succeed. without it, everything else works, but link
+    # never sees any peers
+    set(BESPOKE_IOS_ENTITLEMENTS "")
+    if(BESPOKE_ENABLE_PLUGIN_HOSTING)
+        string(APPEND BESPOKE_IOS_ENTITLEMENTS "    <key>inter-app-audio</key>\n    <true/>\n")
+    endif()
+    if(BESPOKE_IOS_LINK_MULTICAST)
+        string(APPEND BESPOKE_IOS_ENTITLEMENTS "    <key>com.apple.developer.networking.multicast</key>\n    <true/>\n")
+        # lets the abletonlink module know peers can be found, so it doesn't show its warning
+        target_compile_definitions(BespokeSynth PRIVATE BESPOKE_IOS_LINK_MULTICAST=1)
+    endif()
+    if(BESPOKE_IOS_ENTITLEMENTS)
+        configure_file("${CMAKE_SOURCE_DIR}/scripts/ios/entitlements.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/BespokeSynth.entitlements" @ONLY)
+        set_target_properties(BespokeSynth PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/BespokeSynth.entitlements")
+    endif()
+
+    # App Store privacy manifest, copied to the bundle root by Xcode's resources phase
+    set(BESPOKE_PRIVACY_MANIFEST "${CMAKE_SOURCE_DIR}/scripts/ios/PrivacyInfo.xcprivacy")
+    target_sources(BespokeSynth PRIVATE "${BESPOKE_PRIVACY_MANIFEST}")
+    set_source_files_properties("${BESPOKE_PRIVACY_MANIFEST}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+endif()
+
+if(NOT BESPOKE_ENABLE_PYTHON)
+    set(Python_VERSION "disabled")
+endif()
+bespoke_buildtime_version_info(BespokeSynth)
+
+if(MSVC)
+    if(BESPOKE_WERROR)
+        target_compile_options(BespokeSynth PRIVATE /WX)
+    endif()
+else()
+    if (APPLE)
+        target_compile_options(BespokeSynth PRIVATE -Wshorten-64-to-32)
+    endif()
+    if(BESPOKE_WERROR)
+        target_compile_options(BespokeSynth PRIVATE -Werror)
+    endif()
+endif()
+
+target_sources(BespokeSynth PRIVATE
+    ADSR.cpp
+    ADSR.h
+    ADSRDisplay.cpp
+    ADSRDisplay.h
+    AbletonDeviceShared.h
+    AbletonLink.cpp
+    AbletonLink.h
+    AbletonMoveLCD.cpp
+    AbletonMoveLCD.h
+    Acciaccatura.cpp
+    Acciaccatura.h
+    Amplifier.cpp
+    Amplifier.h
+    Arpeggiator.cpp
+    Arpeggiator.h
+    ArrangementController.cpp
+    ArrangementController.h
+    AudioLevelToCV.cpp
+    AudioLevelToCV.h
+    AudioMeter.cpp
+    AudioMeter.h
+    AudioRouter.cpp
+    AudioRouter.h
+    AudioSend.cpp
+    AudioSend.h
+    AudioSplitter.cpp
+    AudioSplitter.h
+    AudioSyncer.cpp
+    AudioSyncer.h
+    AudioToCV.cpp
+    AudioToCV.h
+    AudioToPulse.cpp
+    AudioToPulse.h
+    Autotalent.cpp
+    Autotalent.h
+    BassLineSequencer.cpp
+    BassLineSequencer.h
+    BandVocoder.cpp
+    BandVocoder.h
+    BeatBloks.cpp
+    BeatBloks.h
+    Beats.cpp
+    Beats.h
+    BiquadFilter.cpp
+    BiquadFilter.h
+    BiquadFilterEffect.cpp
+    BiquadFilterEffect.h
+    BitcrushEffect.cpp
+    BitcrushEffect.h
+    BufferShuffler.cpp
+    BufferShuffler.h
+    ButterworthFilterEffect.cpp
+    ButterworthFilterEffect.h
+    Canvas.cpp
+    Canvas.h
+    CanvasControls.cpp
+    CanvasControls.h
+    CanvasElement.cpp
+    CanvasElement.h
+    CanvasScrollbar.cpp
+    CanvasScrollbar.h
+    CanvasTimeline.cpp
+    CanvasTimeline.h
+    Capo.cpp
+    Capo.h
+    ChannelBuffer.cpp
+    ChannelBuffer.h
+    ChaosEngine.cpp
+    ChaosEngine.h
+    Checkbox.cpp
+    Checkbox.h
+    Chord.cpp
+    Chord.h
+    ChordDatabase.cpp
+    ChordDatabase.h
+    ChordDisplayer.cpp
+    ChordDisplayer.h
+    ChordHolder.cpp
+    ChordHolder.h
+    ChordKeyboard.cpp
+    ChordKeyboard.h
+    Chorder.cpp
+    Chorder.h
+    CircleSequencer.cpp
+    CircleSequencer.h
+    ClickButton.cpp
+    ClickButton.h
+    ClipArranger.cpp
+    ClipArranger.h
+    ClipLauncher.cpp
+    ClipLauncher.h
+    CodeEntry.cpp
+    CodeEntry.h
+    ComboGridController.cpp
+    ComboGridController.h
+    CommentDisplay.cpp
+    CommentDisplay.h
+    Compressor.cpp
+    Compressor.h
+    ControlInterface.cpp
+    ControlInterface.h
+    ControlRecorder.cpp
+    ControlRecorder.h
+    ControlSequencer.cpp
+    ControlSequencer.h
+    ControlTactileFeedback.cpp
+    ControlTactileFeedback.h
+    ControlSurface.cpp
+    ControlSurface.h
+    ControlSurfaceDevice.cpp
+    ControlSurfaceDevice.h
+    ControlSurfaceDevicePush2.cpp
+    ControllingSong.cpp
+    ControllingSong.h
+    Curve.cpp
+    Curve.h
+    CurveLooper.cpp
+    CurveLooper.h
+    DataProvider.cpp
+    DataProvider.h
+    DCOffset.cpp
+    DCOffset.h
+    DCRemoverEffect.cpp
+    DCRemoverEffect.h
+    DebugAudioSource.cpp
+    DebugAudioSource.h
+    DelayEffect.cpp
+    DelayEffect.h
+    DiscontinuitySmoother.cpp
+    DiscontinuitySmoother.h
+    DistortionEffect.cpp
+    DistortionEffect.h
+    DJFilterEffect.cpp
+    DJFilterEffect.h
+    DopplerShift.cpp
+    DopplerShift.h
+    DotGrid.cpp
+    DotGrid.h
+    DotSequencer.cpp
+    DotSequencer.h
+    DropdownList.cpp
+    DropdownList.h
+    DrumPlayer.cpp
+    DrumPlayer.h
+    DrumSynth.cpp
+    DrumSynth.h
+    EQEffect.cpp
+    EQEffect.h
+    EQModule.cpp
+    EQModule.h
+    EffectChain.cpp
+    EffectChain.h
+    EffectFactory.cpp
+    EffectFactory.h
+    EnvOscillator.cpp
+    EnvOscillator.h
+    EnvelopeEditor.cpp
+    EnvelopeEditor.h
+    EnvelopeModulator.cpp
+    EnvelopeModulator.h
+    EuclideanSequencer.cpp
+    EuclideanSequencer.h
+    EventCanvas.cpp
+    EventCanvas.h
+    FFT.cpp
+    FFT.h
+    FFTtoAdditive.cpp
+    FFTtoAdditive.h
+    FMSynth.cpp
+    FMSynth.h
+    FMVoice.cpp
+    FMVoice.h
+    FeedbackModule.cpp
+    FeedbackModule.h
+    FileStream.cpp
+    FileStream.h
+    FillSaveDropdown.h
+    FilterButterworth24db.cpp
+    FilterButterworth24db.h
+    FilterViz.cpp
+    FilterViz.h
+    FloatSliderLFOControl.cpp
+    FloatSliderLFOControl.h
+    FollowingSong.cpp
+    FollowingSong.h
+    FormantFilterEffect.cpp
+    FormantFilterEffect.h
+    FourOnTheFloor.cpp
+    FourOnTheFloor.h
+    FreeverbEffect.cpp
+    FreeverbEffect.h
+    FreqDelay.cpp
+    FreqDelay.h
+    FreqDomainBoilerplate.cpp
+    FreqDomainBoilerplate.h
+    FubbleModule.cpp
+    FubbleModule.h
+    GainStageEffect.cpp
+    GainStageEffect.h
+    GateEffect.cpp
+    GateEffect.h
+    GlobalControls.cpp
+    GlobalControls.h
+    Granulator.cpp
+    Granulator.h
+    GridController.cpp
+    GridController.h
+    GridModule.cpp
+    GridModule.h
+    GridSliders.cpp
+    GridSliders.h
+    GroupControl.cpp
+    GroupControl.h
+    HelpDisplay.cpp
+    HelpDisplay.h
+    IAudioEffect.h
+    IAudioPoller.h
+    IAudioProcessor.cpp
+    IAudioProcessor.h
+    IAudioReceiver.cpp
+    IAudioReceiver.h
+    IAudioSource.cpp
+    IAudioSource.h
+    IClickable.cpp
+    IClickable.h
+    IControlVisualizer.h
+    IDrawableModule.cpp
+    IDrawableModule.h
+    IDrivableSequencer.h
+    IInputRecordable.h
+    IMidiVoice.h
+    IModulator.cpp
+    IModulator.h
+    IModuleDecorator.h
+    INonstandardController.h
+    INoteReceiver.cpp
+    INoteReceiver.h
+    INoteSource.cpp
+    INoteSource.h
+    IPatchable.h
+    IPollable.h
+    IPulseReceiver.cpp
+    IPulseReceiver.h
+    IUIControl.cpp
+    IUIControl.h
+    IVoiceParams.h
+    InputChannel.cpp
+    InputChannel.h
+    Inverter.cpp
+    Inverter.h
+    JumpBlender.cpp
+    JumpBlender.h
+    KarplusStrong.cpp
+    KarplusStrong.h
+    KarplusStrongVoice.cpp
+    KarplusStrongVoice.h
+    KeyboardDisplay.cpp
+    KeyboardDisplay.h
+    Kicker.cpp
+    Kicker.h
+    LabelDisplay.cpp
+    LabelDisplay.h
+    LFO.cpp
+    LFO.h
+    LFOController.cpp
+    LFOController.h
+    LatencyCalculator.cpp
+    LatencyCalculator.h
+    LaunchpadInterpreter.cpp
+    LaunchpadInterpreter.h
+    LaunchpadKeyboard.cpp
+    LaunchpadKeyboard.h
+    LaunchpadNoteDisplayer.cpp
+    LaunchpadNoteDisplayer.h
+    LevelMeterDisplay.cpp
+    LevelMeterDisplay.h
+    LinkwitzRileyFilter.cpp
+    LinkwitzRileyFilter.h
+    LinnstrumentControl.cpp
+    LinnstrumentControl.h
+    Lissajous.cpp
+    Lissajous.h
+    LiveGranulator.cpp
+    LiveGranulator.h
+    LocationZoomer.cpp
+    LocationZoomer.h
+    LockFreeQueue.h
+    FixedBlockAudioAdapter.h
+    LoopStorer.cpp
+    LoopStorer.h
+    Looper.cpp
+    Looper.h
+    LooperGranulator.cpp
+    LooperGranulator.h
+    LooperRecorder.cpp
+    LooperRecorder.h
+    M185Sequencer.cpp
+    M185Sequencer.h
+    MPESmoother.cpp
+    MPESmoother.h
+    MPETweaker.cpp
+    MPETweaker.h
+    MacroSlider.cpp
+    MacroSlider.h
+    Main.cpp
+    MainComponent.cpp
+    MathUtils.cpp
+    MathUtils.h
+    Metronome.cpp
+    Metronome.h
+    MidiCapturer.cpp
+    MidiCapturer.h
+    MidiClockIn.cpp
+    MidiClockIn.h
+    MidiClockOut.cpp
+    MidiClockOut.h
+    MidiControlChange.cpp
+    MidiControlChange.h
+    MidiController.cpp
+    MidiController.h
+    MidiDevice.cpp
+    MidiDevice.h
+    MidiOutput.cpp
+    MidiOutput.h
+    MidiReader.cpp
+    MidiReader.h
+    Minimap.cpp
+    Minimap.h
+    ModWheel.cpp
+    ModWheel.h
+    ModWheelToCV.cpp
+    ModWheelToCV.h
+    ModularSynth.cpp
+    ModularSynth.h
+    ModulationChain.cpp
+    ModulationChain.h
+    ModulationVisualizer.cpp
+    ModulationVisualizer.h
+    ModulatorAccum.cpp
+    ModulatorAccum.h
+    ModulatorAdd.cpp
+    ModulatorAdd.h
+    ModulatorAddCentered.cpp
+    ModulatorAddCentered.h
+    BoundsToPulse.cpp
+    BoundsToPulse.h
+    ModulatorBinaryValue.cpp
+    ModulatorBinaryValue.h
+    ModulatorCurve.cpp
+    ModulatorCurve.h
+    ModulatorExpression.cpp
+    ModulatorExpression.h
+    ModulatorGravity.cpp
+    ModulatorGravity.h
+    ModulatorMult.cpp
+    ModulatorMult.h
+    ModulatorSmoother.cpp
+    ModulatorSmoother.h
+    ModulatorSubtract.cpp
+    ModulatorSubtract.h
+    ModulatorWander.cpp
+    ModulatorWander.h
+    ModuleContainer.cpp
+    ModuleContainer.h
+    ModuleFactory.cpp
+    ModuleFactory.h
+    ModuleSaveData.cpp
+    ModuleSaveData.h
+    ModuleSaveDataPanel.cpp
+    ModuleSaveDataPanel.h
+    ModwheelToPressure.cpp
+    ModwheelToPressure.h
+    ModwheelToVibrato.cpp
+    ModwheelToVibrato.h
+    Monome.cpp
+    Monome.h
+    Monophonify.cpp
+    Monophonify.h
+    MultiBandTracker.cpp
+    MultiBandTracker.h
+    MultibandCompressor.cpp
+    MultibandCompressor.h
+    MultitapDelay.cpp
+    MultitapDelay.h
+    MultitrackRecorder.cpp
+    MultitrackRecorder.h
+    Muter.cpp
+    Muter.h
+    NamedMutex.cpp
+    NamedMutex.h
+    Neighborhooder.cpp
+    Neighborhooder.h
+    NoiseEffect.cpp
+    NoiseEffect.h
+    NoteCanvas.cpp
+    NoteCanvas.h
+    NoteChainNode.cpp
+    NoteChainNode.h
+    NoteChance.cpp
+    NoteChance.h
+    NoteCounter.cpp
+    NoteCounter.h
+    NoteCreator.cpp
+    NoteCreator.h
+    NoteDelayer.cpp
+    NoteDelayer.h
+    NoteDisplayer.cpp
+    NoteDisplayer.h
+    NoteEcho.cpp
+    NoteEcho.h
+    NoteEffectBase.h
+    NoteExpressionRouter.cpp
+    NoteExpressionRouter.h
+    NoteFilter.cpp
+    NoteFilter.h
+    NoteFlusher.cpp
+    NoteFlusher.h
+    NoteGate.cpp
+    NoteGate.h
+    NoteHocket.cpp
+    NoteHocket.h
+    NoteHumanizer.cpp
+    NoteHumanizer.h
+    NoteLatch.cpp
+    NoteLatch.h
+    NoteLooper.cpp
+    NoteLooper.h
+    NoteOctaver.cpp
+    NoteOctaver.h
+    NoteOutputQueue.cpp
+    NoteOutputQueue.h
+    NotePanAlternator.cpp
+    NotePanAlternator.h
+    NotePanRandom.cpp
+    NotePanRandom.h
+    NotePanner.cpp
+    NotePanner.h
+    NoteQuantizer.cpp
+    NoteQuantizer.h
+    NoteRangeFilter.cpp
+    NoteRangeFilter.h
+    NoteRatchet.cpp
+    NoteRatchet.h
+    NoteRouter.cpp
+    NoteRouter.h
+    NoteSinger.cpp
+    NoteSinger.h
+    NoteSorter.cpp
+    NoteSorter.h
+    NoteStepSequencer.cpp
+    NoteStepSequencer.h
+    NoteStepper.cpp
+    NoteStepper.h
+    NoteStreamDisplay.cpp
+    NoteStreamDisplay.h
+    NoteStrummer.cpp
+    NoteStrummer.h
+    NoteSustain.cpp
+    NoteSustain.h
+    NoteTable.cpp
+    NoteTable.h
+    NoteToFreq.cpp
+    NoteToFreq.h
+    NoteToMs.cpp
+    NoteToMs.h
+    NoteToPulse.cpp
+    NoteToPulse.h
+    NoteToggle.cpp
+    NoteToggle.h
+    NoteTransformer.cpp
+    NoteTransformer.h
+    NoteVibrato.cpp
+    NoteVibrato.h
+    OSCOutput.cpp
+    OSCOutput.h
+    OpenFrameworksPort.cpp
+    OpenFrameworksPort.h
+    OscController.cpp
+    OscController.h
+    Oscillator.cpp
+    Oscillator.h
+    OutputChannel.cpp
+    OutputChannel.h
+    PSMoveController.cpp
+    PSMoveController.h
+    PSMoveMgr.cpp
+    PSMoveMgr.h
+    PanicButton.cpp
+    PanicButton.h
+    FileUtils.cpp
+    FileUtils.h
+    Panner.cpp
+    Panner.h
+    PatchCable.cpp
+    PatchCable.h
+    PatchCableSource.cpp
+    PatchCableSource.h
+    PeakTracker.cpp
+    PeakTracker.h
+    PerformanceTimer.cpp
+    PerformanceTimer.h
+    PerlinNoise.cpp
+    PerlinNoise.h
+    PitchBender.cpp
+    PitchBender.h
+    PitchChorus.cpp
+    PitchChorus.h
+    PitchDetector.cpp
+    PitchDetector.h
+    PitchDive.cpp
+    PitchDive.h
+    PitchPanner.cpp
+    PitchPanner.h
+    PitchRemap.cpp
+    PitchRemap.h
+    PitchSetter.cpp
+    PitchSetter.h
+    PitchShiftEffect.cpp
+    PitchShiftEffect.h
+    PitchShifter.cpp
+    PitchShifter.h
+    PitchToCV.cpp
+    PitchToCV.h
+    PitchToSpeed.cpp
+    PitchToSpeed.h
+    PitchToValue.cpp
+    PitchToValue.h
+    PlaySequencer.cpp
+    PlaySequencer.h
+    PolyphonyMgr.cpp
+    PolyphonyMgr.h
+    Polyrhythms.cpp
+    Polyrhythms.h
+    Prefab.cpp
+    Prefab.h
+    Pressure.cpp
+    Pressure.h
+    PressureToCV.cpp
+    PressureToCV.h
+    PressureToModwheel.cpp
+    PressureToModwheel.h
+    PressureToVibrato.cpp
+    PressureToVibrato.h
+    PreviousNote.cpp
+    PreviousNote.h
+    Producer.cpp
+    Producer.h
+    Profiler.cpp
+    Profiler.h
+    PulseButton.cpp
+    PulseButton.h
+    PulseChance.cpp
+    PulseChance.h
+    PulseDelayer.cpp
+    PulseDelayer.h
+    PulseDisplayer.cpp
+    PulseDisplayer.h
+    PulseFlag.cpp
+    PulseFlag.h
+    PulseGate.cpp
+    PulseGate.h
+    PulseHocket.cpp
+    PulseHocket.h
+    PulseLimit.cpp
+    PulseLimit.h
+    PulseRouter.cpp
+    PulseRouter.h
+    PulseSequence.cpp
+    PulseSequence.h
+    PulseTrain.cpp
+    PulseTrain.h
+    Pulser.cpp
+    Pulser.h
+    Pumper.cpp
+    Pumper.h
+    Push2Control.cpp
+    Push2Control.h
+    QuickSpawnMenu.cpp
+    QuickSpawnMenu.h
+    QwertyController.cpp
+    QwertyController.h
+    QwertyToPitchMapping.cpp
+    QwertyToPitchMapping.h
+    RadioButton.cpp
+    RadioButton.h
+    RadioSequencer.cpp
+    RadioSequencer.h
+    Ramp.cpp
+    Ramp.h
+    Ramper.cpp
+    Ramper.h
+    RandomNoteGenerator.cpp
+    RandomNoteGenerator.h
+    Razor.cpp
+    Razor.h
+    Rewriter.cpp
+    Rewriter.h
+    RhythmSequencer.cpp
+    RhythmSequencer.h
+    RingModulator.cpp
+    RingModulator.h
+    RollingBuffer.cpp
+    RollingBuffer.h
+    Sample.cpp
+    Sample.h
+    SampleBrowser.cpp
+    SampleBrowser.h
+    SampleCanvas.cpp
+    SampleCanvas.h
+    SampleCapturer.cpp
+    SampleCapturer.h
+    SampleDrawer.cpp
+    SampleDrawer.h
+    SampleFinder.cpp
+    SampleFinder.h
+    SampleLayerer.cpp
+    SampleLayerer.h
+    SamplePlayer.cpp
+    SamplePlayer.h
+    SampleVoice.cpp
+    SampleVoice.h
+    Sampler.cpp
+    Sampler.h
+    SamplerGrid.cpp
+    SamplerGrid.h
+    SaveStateLoader.cpp
+    SaveStateLoader.h
+    SaveTarget.cpp
+    SaveTarget.h
+    Scale.cpp
+    Scale.h
+    ScaleDegree.cpp
+    ScaleDegree.h
+    ScaleDetect.cpp
+    ScaleDetect.h
+    ScriptModule.cpp
+    ScriptModule.h
+    ScriptModule_PythonInterface.i
+    ScriptStatus.cpp
+    ScriptStatus.h
+    SeaOfGrain.cpp
+    SeaOfGrain.h
+    SessionOrganizer.cpp
+    SessionOrganizer.h
+    Selector.cpp
+    Selector.h
+    SignalClamp.cpp
+    SignalClamp.h
+    SignalGenerator.cpp
+    SignalGenerator.h
+    SimplexFont.h
+    SingleOscillator.cpp
+    SingleOscillator.h
+    SingleOscillatorVoice.cpp
+    SingleOscillatorVoice.h
+    Slider.cpp
+    Slider.h
+    SliderSequencer.cpp
+    SliderSequencer.h
+    SlowLayers.cpp
+    SlowLayers.h
+    Snapshots.cpp
+    Snapshots.h
+    SongBuilder.cpp
+    SongBuilder.h
+    SpaceMouseControl.cpp
+    SpaceMouseControl.h
+    SpectralDisplay.cpp
+    SpectralDisplay.h
+    Splitter.cpp
+    Splitter.h
+    StepSequencer.cpp
+    StepSequencer.h
+    StereoRotation.cpp
+    StereoRotation.h
+    Stutter.cpp
+    Stutter.h
+    StutterControl.cpp
+    StutterControl.h
+    SustainPedal.cpp
+    SustainPedal.h
+    SwitchAndRamp.cpp
+    SwitchAndRamp.h
+    SynthGlobals.cpp
+    SynthGlobals.h
+    TakeRecorder.cpp
+    TakeRecorder.h
+    TapeLooper.cpp
+    TapeLooper.h
+    TapTempo.cpp
+    TapTempo.h
+    TextEntry.cpp
+    TextEntry.h
+    TimelineControl.cpp
+    TimelineControl.h
+    TimerDisplay.cpp
+    TimerDisplay.h
+    TitleBar.cpp
+    TitleBar.h
+    TrackOrganizer.cpp
+    TrackOrganizer.h
+    Transport.cpp
+    Transport.h
+    TransposeFrom.cpp
+    TransposeFrom.h
+    TremoloEffect.cpp
+    TremoloEffect.h
+    TriggerDetector.cpp
+    TriggerDetector.h
+    UIControlMacros.h
+    UIGrid.cpp
+    UIGrid.h
+    UnstableModWheel.cpp
+    UnstableModWheel.h
+    UnstablePitch.cpp
+    UnstablePitch.h
+    UnstablePressure.cpp
+    UnstablePressure.h
+    UserData.cpp
+    UserData.h
+    UserPrefs.cpp
+    UserPrefs.h
+    UserPrefsEditor.cpp
+    UserPrefsEditor.h
+    VSTPlayhead.cpp
+    VSTPlayhead.h
+    VSTPlugin.cpp
+    VSTPlugin.h
+    VSTScanner.cpp
+    VSTScanner.h
+    VSTWindow.cpp
+    VSTWindow.h
+    ValueSetter.cpp
+    ValueSetter.h
+    ValueStream.cpp
+    ValueStream.h
+    VelocityCurve.cpp
+    VelocityCurve.h
+    VelocityScaler.cpp
+    VelocityScaler.h
+    VelocitySetter.cpp
+    RustelPattern.cpp
+    RustelLink.h
+    RustelView.cpp
+    RustelViewModes.cpp
+    RustelViewAudio.cpp
+    RustelView.h
+    RustelAudio.cpp
+    RustelAudio.h
+    RustelPattern.h
+    VelocitySetter.h
+    VelocityStepSequencer.cpp
+    VelocityStepSequencer.h
+    VelocityToCV.cpp
+    VelocityToCV.h
+    VelocityToChance.cpp
+    VelocityToChance.h
+    VelocityToDuration.cpp
+    VelocityToDuration.h
+    VinylTempoControl.cpp
+    VinylTempoControl.h
+    Vocoder.cpp
+    Vocoder.h
+    VocoderCarrierInput.cpp
+    VocoderCarrierInput.h
+    VoiceManager.cpp
+    VoiceManager.h
+    VoiceSetter.cpp
+    VoiceSetter.h
+    VolcaBeatsControl.cpp
+    VolcaBeatsControl.h
+    WaveformViewer.cpp
+    WaveformViewer.h
+    Waveshaper.cpp
+    Waveshaper.h
+    WelcomeScreen.cpp
+    WelcomeScreen.h
+    WhiteKeys.cpp
+    WhiteKeys.h
+    WindowCloseListener.h
+    ZeroCrossRate.cpp
+    ZeroCrossRate.h
+    ofxJSONElement.cpp
+    ofxJSONElement.h
+    )
+
+if(BESPOKE_NIGHTLY)
+    target_compile_definitions(BespokeSynth PRIVATE
+        BESPOKE_NIGHTLY=1
+        )
+endif()
+
+if(BESPOKE_PORTABLE AND BESPOKE_ENABLE_PYTHON)
+    set_source_files_properties(ScriptModule.cpp PROPERTIES
+        COMPILE_DEFINITIONS BESPOKE_PORTABLE_PYTHON="$<IF:$<BOOL:${WIN32}>,python.exe,bin/python>"
+        )
+endif()
+
+target_include_directories(BespokeSynth PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${Python_INCLUDE_DIRS}
+    )
+
+target_compile_definitions(BespokeSynth PRIVATE
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JUCE_ALLOW_STATIC_NULL_VARIABLES=0
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CAMERA=disabled
+
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_REPORT_APP_USAGE=0
+
+    JUCE_COREGRAPHICS_DRAW_ASYNC=1
+
+    JUCE_ALSA=1
+    JUCE_JACK=1
+    JUCE_JACK_CLIENT_NAME="BespokeSynth"
+
+    JUCE_WASAPI=1
+    JUCE_DIRECTSOUND=1
+
+    JUCE_PLUGINHOST_VST3=$<BOOL:${BESPOKE_HOST_DESKTOP_PLUGIN_FORMATS}>
+    JUCE_PLUGINHOST_VST=$<AND:$<BOOL:${BESPOKE_HOST_DESKTOP_PLUGIN_FORMATS}>,$<BOOL:${BESPOKE_VST2_SDK_LOCATION}>>
+    JUCE_PLUGINHOST_LV2=$<BOOL:${BESPOKE_HOST_DESKTOP_PLUGIN_FORMATS}>
+    JUCE_PLUGINHOST_LADSPA=0
+
+    JUCE_CATCH_UNHANDLED_EXCEPTIONS=0
+
+    BESPOKE_PYTHON_SUPPORT=$<BOOL:${BESPOKE_ENABLE_PYTHON}>
+    BESPOKE_PLUGIN_HOSTING_SUPPORT=$<BOOL:${BESPOKE_ENABLE_PLUGIN_HOSTING}>
+    )
+
+if (BESPOKE_IOS)
+    target_compile_definitions(BespokeSynth PRIVATE
+        BESPOKE_IOS=1
+        BESPOKE_MOBILE=1 # phone/tablet behavior shared with android: touch navigation, full screen window, etc
+        )
+    target_sources(BespokeSynth PRIVATE IOSAudioSession.h IOSAudioSession.mm IOSDocuments.h IOSDocuments.mm IOSDiagnostics.h IOSDiagnostics.mm IOSPointerInput.h IOSPointerInput.mm IOSPluginViewHost.h IOSPluginViewHost.mm IOSAUParameterEvents.h IOSAUParameterEvents.mm)
+    # the asio bundled with Link reads uninitialized memory in thread_info_base's constructor. recent clang treats that
+    # as unreachable when optimizing and deletes io_context::run()'s event loop, so Link silently never starts discovery
+    set_source_files_properties(AbletonLink.cpp PROPERTIES COMPILE_OPTIONS "-ftrivial-auto-var-init=zero")
+elseif (APPLE)
+    target_compile_definitions(BespokeSynth PRIVATE
+        BESPOKE_MAC=1
+        )
+    target_sources(BespokeSynth PRIVATE
+        CFMessaging/KontrolKommunicator.cpp
+        CFMessaging/ListenPort.cpp
+        CFMessaging/NIMessage.cpp
+        CFMessaging/SendPort.cpp
+        KompleteKontrol.cpp
+        KompleteKontrol.h
+        )
+    target_link_libraries(BespokeSynth PRIVATE "-framework CoreAudioKit")
+
+    if (BESPOKE_SIGN_AS)
+        message(STATUS "Enabling hardened runtime for signed build")
+        set_target_properties(BespokeSynth PROPERTIES
+            XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
+        )
+
+        message(STATUS "Creating target BespokeSynthSigned")
+        add_custom_target(BespokeSynthSigned)
+        add_dependencies(BespokeSynthSigned BespokeSynth)
+
+        get_target_property(SIGN_HERE BespokeSynth RUNTIME_OUTPUT_DIRECTORY)
+        add_custom_command(TARGET BespokeSynthSigned POST_BUILD VERBATIM
+                WORKING_DIRECTORY ${SIGN_HERE}
+                COMMAND codesign --force -s "${BESPOKE_SIGN_AS}" --deep BespokeSynth.app/Contents/Frameworks/Python.framework/
+                COMMAND find BespokeSynth.app/Contents/Frameworks/Python.framework/Versions/ -name *.so -exec codesign --force -s "${BESPOKE_SIGN_AS}" {} \;
+                COMMAND find BespokeSynth.app/Contents/Frameworks/Python.framework/Versions/ -name *.o -exec codesign --force -s "${BESPOKE_SIGN_AS}" {} \;
+                COMMAND find BespokeSynth.app/Contents/Frameworks/Python.framework/Versions/ -name python3* -perm +111 -exec codesign -o runtime --entitlements "${CMAKE_SOURCE_DIR}/scripts/installer_macOS/entitlements.plist" --force -s "${BESPOKE_SIGN_AS}"  {} \;
+                COMMAND find BespokeSynth.app/Contents/Frameworks/Python.framework/Versions/ -name Python -exec codesign -o runtime --entitlements "${CMAKE_SOURCE_DIR}/scripts/installer_macOS/entitlements.plist" --force -s "${BESPOKE_SIGN_AS}" {} \;
+                COMMAND codesign --force -s "${BESPOKE_SIGN_AS}" -o runtime --entitlements "${CMAKE_SOURCE_DIR}/scripts/installer_macOS/entitlements.plist" --deep BespokeSynth.app
+                )
+    endif()
+elseif (BESPOKE_ANDROID)
+    target_compile_definitions(BespokeSynth PRIVATE
+        BESPOKE_ANDROID=1
+        BESPOKE_MOBILE=1
+        )
+    # juce_add_gui_app makes a shared library on android, and JUCE's java side (com.rmsl.juce.Java) loads it by this name
+    set_target_properties(BespokeSynth PROPERTIES OUTPUT_NAME juce_jni)
+    target_sources(BespokeSynth PRIVATE AndroidSupport.h AndroidSupport.cpp)
+    target_link_options(BespokeSynth PRIVATE "-Wl,--no-undefined")
+    # same asio issue as on iOS, see above
+    set_source_files_properties(AbletonLink.cpp PROPERTIES COMPILE_OPTIONS "-ftrivial-auto-var-init=zero")
+    # Link's linux platform code works on android, but its cmake config only picks it for CMAKE_SYSTEM_NAME "Linux"
+    set_property(TARGET Ableton::Link APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS LINK_PLATFORM_LINUX=1)
+elseif (WIN32)
+    target_compile_definitions(BespokeSynth PRIVATE BESPOKE_WINDOWS=1)
+    target_link_libraries(BespokeSynth PRIVATE "dwmapi.lib")
+
+    IF (MINGW)
+        target_link_libraries(BespokeSynth PRIVATE iphlpapi)
+    endif()
+
+    if (BESPOKE_ASIO_SDK_LOCATION)
+        message( STATUS "Including ASIO from ${BESPOKE_ASIO_SDK_LOCATION}")
+        target_compile_definitions(BespokeSynth PRIVATE JUCE_ASIO=1)
+        target_include_directories(BespokeSynth PRIVATE ${BESPOKE_ASIO_SDK_LOCATION}/common)
+    endif()
+
+    if (BESPOKE_SPACEMOUSE_SDK_LOCATION)
+        message( STATUS "Including SpaceMouse from ${BESPOKE_SPACEMOUSE_SDK_LOCATION}")
+        target_compile_definitions(BespokeSynth PRIVATE BESPOKE_SPACEMOUSE_SUPPORT=1)
+        target_include_directories(BespokeSynth PRIVATE ${BESPOKE_SPACEMOUSE_SDK_LOCATION}/include)
+        if (${CMAKE_SIZEOF_VOID_P} EQUAL 4)
+            target_link_libraries(BespokeSynth PRIVATE "${BESPOKE_SPACEMOUSE_SDK_LOCATION}/windows/x86/siapp.lib")
+        else()
+            target_link_libraries(BespokeSynth PRIVATE "${BESPOKE_SPACEMOUSE_SDK_LOCATION}/windows/x64/siapp.lib")
+        endif()
+    endif()
+
+    set_target_properties(BespokeSynth PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:BespokeSynth>"
+        VS_DEBUGGER_COMMAND           "$<TARGET_FILE:BespokeSynth>"
+        VS_DEBUGGER_ENVIRONMENT       "PATH=%PATH%;${CMAKE_PREFIX_PATH}/bin")
+else ()
+    target_compile_definitions(BespokeSynth PRIVATE BESPOKE_LINUX=1)
+
+    # Finally provide install rules if folks want to install into CMAKE_INSTALL_PREFIX
+    install(TARGETS BespokeSynth DESTINATION bin)
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/resource DESTINATION share/BespokeSynth)
+    install(FILES ${CMAKE_SOURCE_DIR}/scripts/installer_linux/BespokeSynth.desktop DESTINATION share/applications)
+    install(FILES ${CMAKE_SOURCE_DIR}/scripts/installer_linux/com.bespokesynth.BespokeSynth.metainfo.xml DESTINATION share/metainfo)
+    install(FILES ${CMAKE_SOURCE_DIR}/bespoke_icon.png DESTINATION share/icons/hicolor/512x512/apps)
+endif ()
+
+target_link_libraries(BespokeSynth PRIVATE
+    exprtk::exprtk
+    bespoke::abletonmove
+    bespoke::freeverb
+    $<IF:$<STREQUAL:${BESPOKE_SYSTEM_JSONCPP},OFF>,bespoke::json,jsoncpp>
+    bespoke::leathers
+    bespoke::nanovg
+    bespoke::psmove
+    bespoke::push2
+    bespoke::xwax
+    bespoke::scalable-font2
+
+    $<$<STREQUAL:${BESPOKE_SYSTEM_TUNING_LIBRARY},OFF>:tuning-library>
+    oddsound-mts
+    Ableton::Link
+    $<$<STREQUAL:${BESPOKE_SYSTEM_READERWRITERQUEUE},OFF>:readerwriterqueue>
+
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_cryptography
+    juce::juce_gui_basics
+    juce::juce_opengl
+    juce::juce_osc
+    # if JUCE is devendored, these libraries need to be linked against
+    $<$<BOOL:${BESPOKE_DEVENDORED_SYSTEM_JUCE}>:FLAC>
+    $<$<BOOL:${BESPOKE_DEVENDORED_SYSTEM_JUCE}>:ogg>
+    $<$<BOOL:${BESPOKE_DEVENDORED_SYSTEM_JUCE}>:vorbis>
+    $<$<BOOL:${BESPOKE_DEVENDORED_SYSTEM_JUCE}>:vorbisenc>
+    $<$<BOOL:${BESPOKE_DEVENDORED_SYSTEM_JUCE}>:vorbisfile>
+
+    $<$<BOOL:${MINGW}>:dbghelp>
+    )
+
+if(BESPOKE_ENABLE_PYTHON)
+    target_link_libraries(BespokeSynth PRIVATE
+        bespoke::pybind11
+        ${Python_LIBRARIES}
+        )
+endif()
+
+if(NOT BESPOKE_ANDROID) # on android, gradle packages resource/ into the apk as assets
+    bespoke_copy_resource_dir(BespokeSynth)
+endif()
+bespoke_make_portable(BespokeSynth)
+
+# Rules to do some installing and packaging which we will have to refactor  but
+# for now gets a nightly going
+set(BESPOKE_NIGHTLY_DIR "${CMAKE_BINARY_DIR}/nightly")
+add_custom_target(nightly-package)
+add_dependencies(nightly-package BespokeSynth)
+
+if (APPLE)
+    if (BESPOKE_SIGN_AS)
+        # If we aren't signing there's no target
+        add_dependencies(nightly-package BespokeSynthSigned)
+    endif()
+    get_target_property(output_dir BespokeSynth RUNTIME_OUTPUT_DIRECTORY)
+    add_custom_command(TARGET nightly-package
+             POST_BUILD
+             COMMAND ${CMAKE_SOURCE_DIR}/scripts/installer_macOS/make_installer.sh "${output_dir}" "${CMAKE_SOURCE_DIR}/scripts/installer_macOS" "${BESPOKE_NIGHTLY_DIR}" "${CMAKE_PROJECT_VERSION}"
+             )
+endif()
+
+# CI Pipeline {{{
+# this checks if PRs are following clang-format rules
+# nabbed from https://github.com/surge-synthesizer/surge/blob/94fa4c7d4d4bbfdfe34820bd365f653b49314747/CMakeLists.txt#L172
+# the code will run on linux in the pipeline.
+add_custom_target(code-quality-pipeline-checks)
+
+# Clang Format checks
+set(CLANG_FORMAT_DIRS Source)
+set(CLANG_FORMAT_EXTS cpp h)
+foreach(dir ${CLANG_FORMAT_DIRS})
+  foreach(ext ${CLANG_FORMAT_EXTS})
+    list(APPEND CLANG_FORMAT_GLOBS "':(glob)${dir}/**/*.${ext}'")
+  endforeach()
+endforeach()
+add_custom_command(TARGET code-quality-pipeline-checks
+  POST_BUILD
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMAND ${CMAKE_COMMAND} -E echo About to check clang-format
+  COMMAND clang-format --version
+  COMMAND git ls-files -- ${CLANG_FORMAT_GLOBS} | xargs clang-format --dry-run --Werror
+  )
+# }}}

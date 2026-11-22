@@ -283,3 +283,79 @@ not ordinary sound controls. Source ranges never pass through temporary
 control key. The editor trace queue is a separate bounded consumer and remains
 available when the bridge is enabled. The external music protocol is unchanged.
 See [the architecture notes](contribution/ARCHITECTURE.md#typed-telemetry-boundary).
+
+
+### Per-lane stereo audio in Bespoke (Windows)
+
+`rustelaudio` is a normal Bespoke audio source. Add one node for each lane you
+want to process, choose its Rustel instance/lane, and connect its audio cable to
+Bespoke filters, delays, mixers or an output. Multiple nodes may receive the same
+lane; their output will sum if you connect them to the same destination.
+
+Build the updated hub, Rustel and Bespoke using the existing build instructions.
+Start a fresh Rustel process with lane export enabled:
+
+```powershell
+.\music-link\start.ps1 -LaneAudio
+```
+
+Use `-LaneAudio -Silent` to render through Rustel's silent output while all
+listening happens in Bespoke. A previously running Rustel must be restarted;
+changing the launcher's environment cannot change an existing process.
+For Studio or a manual CLI launch, set both `RUSTEL_MUSIC_LINK=1` and
+`RUSTEL_LANE_AUDIO=1` in its launching environment.
+
+The first 15 distinct lane identities get dedicated stereo orbit slots. Slots
+remain reserved for the session, even after removal from the score, so existing
+voice, delay, reverb and insert-effect tails continue in their original output.
+Retired lanes remain selectable as `(retired lane / tails)`. Further lane
+identities still play through Rustel's unexported orbit, but are not available as
+separate outputs; restart the session to clear its slot reservations.
+
+This is an explicit isolated-orbit mode. It replaces score-authored `.orbit()`
+assignments for exported lanes and places unexported score voices on orbit 15.
+Shared cross-lane orbit effects, orbit-number-based ducking and orbit hardware
+routing therefore do not retain their ordinary shared-bus meaning in this mode.
+Exported stems are post lane/orbit effects, channel mapping, duck and orbit
+fader, **before Rustel's master gain and limiter**. Their independent effects
+keep processing between notes; this does not reconstruct audio from event data.
+Normal Rustel stop/score-takeover rules still apply. Keyboard audition is not a
+score lane output.
+
+Hearsay/HTTP carries discovery only. PCM uses a versioned Windows named mapping,
+15 stereo rings of 16,384 frames, and tagged atomic samples. A Bespoke worker
+reads and linearly resamples each selected stream with a bounded clock-drift
+adjustment. There is about 50 ms of source buffering plus three Bespoke blocks;
+this first implementation is not sample-aligned to unrelated Bespoke sources or
+an external clock. Different nodes may have slightly different startup alignment.
+No network, mapping operations, waits or locks run in the Bespoke audio callback.
+Its fixed queue fades underflow/recovery instead of replaying old blocks.
+
+A connected, enabled node renews its lane's monitor lease while PCM is advancing.
+Rustel removes that lane from its direct monitor to prevent doubled playback.
+On disconnect, disable, process exit or stalled reading, the lease expires within
+500 ms and direct monitoring returns (a silent Rustel device remains silent).
+A brief gap can occur when first connecting while the receiver buffers. Shared
+memory is reclaimed when both processes release it; no PCM recordings are saved.
+The node remembers its selected session/lane in Bespoke's saved state; a new
+Rustel process has a new session ID and must be selected again.
+
+The implementation is Windows-only for now. Other platforms keep ordinary
+Rustel playback and do not advertise lane audio exports.
+
+
+Verification commands (after building) are:
+
+```powershell
+cargo test --manifest-path rustel/Cargo.toml -p rustel-audio --features device-audio lane_audio::tests --lib -- --test-threads=1
+cargo test --manifest-path rustel/Cargo.toml -p rustel-runtime --no-default-features --features music-link session::music::tests --lib
+python music-link/check-lane-audio.py
+python music-link/check-lane-audio.py --bespoke
+```
+
+The last check launches a temporary Bespoke patch with two `rustelaudio` nodes
+connected to inaudible test sinks, verifies callback consumption through the
+shared-memory diagnostics, and closes only processes it created. Run it with no
+other Bespoke instance open. The producer check uses Rustel's silent output and
+also verifies that removing a lane does not recycle its export slot. Existing
+build and protocol checks cover normal playback with export disabled.
