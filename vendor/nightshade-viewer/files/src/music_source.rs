@@ -60,6 +60,25 @@ fn source_offsets(document: &str, source: &str, line: usize) -> Vec<Option<usize
 #[component]
 pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize,
                    color: &'static str, expanded: RwSignal<bool>) -> impl IntoView {
+    let root = NodeRef::<leptos::html::Pre>::new();
+    let focus_lane = StoredValue::new(lane.clone());
+    let focus_range = Memo::new(move |_| {
+        let focus = state.music_source_focus.get()?;
+        if !focus_lane.with_value(|id| id == &focus.0) || focus.1.is_empty() { return None; }
+        state.music.with(|s| s.as_ref().and_then(|s| s.bindings.iter().find(|b| b.name == focus.1).map(|b| (b.from,b.to))))
+    });
+    Effect::new(move |_| {
+        let Some(focus) = state.music_source_focus.get() else { return; };
+        if !focus_lane.with_value(|id| id == &focus.0) { return; }
+        let Some(pre) = root.get() else { return; };
+        let offset = state.music.with_untracked(|s| s.as_ref().and_then(|s| s.bindings.iter().find(|b| b.name == focus.1).map(|b| b.from)));
+        if let Some(offset) = offset {
+            if let Ok(Some(target)) = pre.query_selector(&format!("[data-source-offset='{offset}']")) {
+                let delta=target.get_bounding_client_rect().top()-pre.get_bounding_client_rect().top();
+                pre.set_scroll_top(pre.scroll_top() + delta as i32 - pre.client_height()/2);
+            }
+        } else { pre.set_scroll_top(0); }
+    });
     let now = RwSignal::new(js_sys::Date::now());
     let callback = Closure::<dyn FnMut()>::new(move || {
         if expanded.get_untracked() { now.set(js_sys::Date::now()); }
@@ -107,16 +126,18 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
             let character = index;
             index += 1;
             parts.push(view! {
-                <span class=format!("music-token-{class}") style=move || {
+                <span class=format!("music-token-{class}") data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
                     let offset = offsets.with(|o| o.get(character).copied().flatten());
-                    if offset.is_some_and(|offset| active.with(|ranges| ranges.iter().any(|&(a,b)| a <= offset && offset < b))) {
+                    if offset.is_some_and(|offset| focus_range.with(|range| range.is_some_and(|(a,b)| a <= offset && offset < b))) {
+                        format!("{}background:#ffe08a55;outline:1px solid #ffe08a", tint.get())
+                    } else if offset.is_some_and(|offset| active.with(|ranges| ranges.iter().any(|&(a,b)| a <= offset && offset < b))) {
                         format!("{}background:{color}55;box-shadow:inset 0 -2px {color}", tint.get())
                     } else { tint.get() }
                 }>{c.to_string()}</span>
             });
         }
     }
-    view! { <pre class="music-source">{parts.collect_view()}</pre> }
+    view! { <pre node_ref=root class="music-source" style="max-height:180px;overflow:auto">{parts.collect_view()}</pre> }
 }
 
 #[cfg(test)]

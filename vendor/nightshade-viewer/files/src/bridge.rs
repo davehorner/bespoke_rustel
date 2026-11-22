@@ -59,6 +59,7 @@ pub fn connect(offscreen: OffscreenCanvas, width: f32, height: f32, state: Viewe
         };
         match message {
             WorkerMessage::MusicToggleParts { lane } => crate::music::toggle_parts(state, &lane),
+            WorkerMessage::MusicRevealSource { lane, part } => crate::music::reveal_source(state, &lane, &part),
             WorkerMessage::Ready { context, adapter } => {
                 state
                     .context

@@ -172,6 +172,8 @@ pub(crate) fn apply_client_message(world: &mut World, viewer: &mut Viewer, messa
         ClientMessage::Pick { x, y } => {
             if let Some(lane) = viewer.music.part_heading_at(world, x, y) {
                 post(&WorkerMessage::MusicToggleParts { lane });
+            } else if let Some((lane,part)) = viewer.music.source_at(world,x,y) {
+                post(&WorkerMessage::MusicRevealSource { lane,part });
             } else if !viewer.music.active() {
                 systems::picking::request(&mut viewer.viewer, world, x, y);
             }

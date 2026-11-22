@@ -86,11 +86,22 @@ parent (**all lanes** applies the toggle to every parent). Stage, piano roll and
 wordfall separate the tracks spatially; other event views retain their shared
 geometry and part colors. Drag to pan and zoom to inspect larger arrangements.
 Event-name labels have transparent backgrounds.
-Nightshade also prints note names (`C4`, `F#3`, etc.) on the 3D blocks' top faces
+Nightshade also prints note names (`C4`, `F#3`, etc.) on all six 3D block faces
 and inside piano-roll blocks; unpitched hits show `x`. Fractional pitches retain
 their cent offsets. Glyphs fit the block footprint without a background plate;
 zoom in to read very short notes. Part names remain above the 3D blocks and on
 their virtual-lane headings. Wordfall uses the same note/hit notation.
+Core rails also carry flat text inscriptions. Virtual-part rails are shorter
+and inset beneath their playback parent. Time-axis captions and ticks sit in
+their own gutter, separate from the rails; crowded axis values are suppressed
+instead of overlapping captions or one another.
+
+Click a lane name, rail, ball or pulse ring to reveal its source in the existing
+lane card. A named part opens the evaluated document, highlights its `const`
+name and scrolls to that definition. Selecting a playback lane in the dropdown
+also reveals its expression or referenced const. The small **+** / **−** on a
+parent heading still expands/collapses parts. This navigation does not change
+solo or audio routing, and does not require a new editor panel or file access.
 
 Parts are discovered from the events Rustel actually schedules, without querying
 patterns a second time. They stay registered through rests and repeated cycles

@@ -61,6 +61,19 @@ pub fn toggle_parts(state: ViewerState, lane: &str) {
     });
 }
 
+pub fn reveal_source(state: ViewerState, lane: &str, part: &str) {
+    let target = state.music.with_untracked(|s| {
+        let snapshot=s.as_ref()?;
+        let parent=snapshot.lanes.iter().find(|l|l.id==lane)?;
+        if !part.is_empty() { return Some(part.to_owned()); }
+        let root=parent.display_name().chars().take_while(|c|c.is_alphanumeric()||*c=='_'||*c=='$').collect::<String>();
+        Some(if snapshot.bindings.iter().any(|b|b.name==root) {root} else {String::new()})
+    });
+    let Some(target)=target else{return};
+    let next = state.music_source_focus.with_untracked(|focus| focus.as_ref().map_or(1, |f| f.2.wrapping_add(1)));
+    state.music_source_focus.set(Some((lane.to_owned(), target, next)));
+}
+
 pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
     let Ok(socket) = WebSocket::new("ws://127.0.0.1:9613") else {
         return;
@@ -270,6 +283,7 @@ pub fn MusicPanel(
                         on:change=move |e| {
                             let old=state.music_lane.get_untracked(); let active=selected_is_solo(state); let lane=event_target_value(&e);
                             state.music_lane.set(lane.clone());
+                            if !lane.is_empty() { reveal_source(state, &lane, ""); }
                             if active { if lane.is_empty() { solo(state,old,false); } else { solo(state,lane,true); } }
                         }>
                         <option value="">"All lanes"</option>
@@ -299,6 +313,25 @@ pub fn MusicPanel(
                             let preview = source.lines().next().unwrap_or("").to_string();
                             let expanded = RwSignal::new(false);
                             let lane_id = lane.id.clone();
+                            let original_source = StoredValue::new(source.clone());
+                            let source_lane = StoredValue::new(lane.id.clone());
+                            let focus_details = NodeRef::<leptos::html::Details>::new();
+                            let focus_id = StoredValue::new(lane.id.clone());
+                            Effect::new(move |_| {
+                                if state.music_source_focus.with(|focus| focus.as_ref().is_some_and(|f| focus_id.with_value(|id| &f.0 == id))) {
+                                    expanded.set(true);
+                                    if let Some(details) = focus_details.get() {
+                                        let _ = details.set_attribute("open", "");
+                                        details.scroll_into_view_with_bool(false);
+                                    }
+                                }
+                            });
+                            let shown_source = Memo::new(move |_| {
+                                let full = state.music_source_focus.with(|focus| focus.as_ref().is_some_and(|f| source_lane.with_value(|id| &f.0 == id) && !f.1.is_empty()));
+                                if full {
+                                    state.music.with(|s| (s.as_ref().map(|s| s.source.clone()).unwrap_or_default(), 1))
+                                } else { (original_source.get_value(), lane.line) }
+                            });
                             let metadata_id = lane.id.clone();
                             let expand_id = StoredValue::new(lane.id.clone());
                             let checked_id = StoredValue::new(lane.id.clone());
@@ -306,7 +339,7 @@ pub fn MusicPanel(
                             let part_count = Memo::new(move |_| state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())));
                             let line = lane.line;
                             view! { <div class="music-lane" style:border-top=format!("2px solid {}", palette[i % 8])>
-                                <details on:toggle=move |event| {
+                                <details node_ref=focus_details on:toggle=move |event| {
                                     use wasm_bindgen::JsCast;
                                     if let Some(element) = event.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
                                         expanded.set(element.has_attribute("open"));
@@ -323,7 +356,8 @@ pub fn MusicPanel(
                                         </Show>
                                         {preview}
                                     </summary>
-                                    <crate::music_source::MusicSource state source lane=lane_id line color=palette[i % 8] expanded />
+                                    <For each=move || vec![shown_source.get()] key=|(source,line)| (source.clone(),*line)
+                                        children=move |(source,line)| view! { <crate::music_source::MusicSource state source lane=lane_id.clone() line color=palette[i % 8] expanded /> } />
                                 </details>
                                 <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("{}  /  LINE {}  /  {:+} ST", metadata_id, line, transpose) }}</div>
                             </div> }

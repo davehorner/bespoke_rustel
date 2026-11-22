@@ -36,6 +36,15 @@ mod named_part_tests {
     }
 
     #[test]
+    fn virtual_source_target_keeps_parent_and_unicode_part_identity() {
+        let id=virtual_id("#4","mélodie");
+        assert_eq!(virtual_parent(&id),Some(("#4","mélodie")));
+        assert_eq!(virtual_parent("#4"),None);
+        assert_eq!(virtual_parent("~99:short"),None);
+        assert_eq!(virtual_parent("~1:é"),None);
+    }
+
+    #[test]
     fn names_have_stable_bounded_colors_and_old_events_still_decode() {
         assert_eq!(named_color("bass"), named_color("bass"));
         assert_ne!(named_color("bass"), named_color("rhythm"));
@@ -145,6 +154,12 @@ impl Lane {
 
 fn virtual_id(parent: &str, part: &str) -> String {
     format!("~{}:{parent}{part}", parent.len())
+}
+
+pub fn virtual_parent(id: &str) -> Option<(&str, &str)> {
+    let (length, tail) = id.strip_prefix('~')?.split_once(':')?;
+    let length = length.parse::<usize>().ok()?;
+    Some((tail.get(..length)?, tail.get(length..)?))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

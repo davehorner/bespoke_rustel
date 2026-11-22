@@ -201,7 +201,7 @@
         },
         {
           "path": "protocol/src/lib.rs",
-          "sha256": "8ec954d5c2584e29a1d26632a6535366d351197f6d6dd0ebf5ec6f7e0962cd0d"
+          "sha256": "caebbcc8e02c4f56f395bd1d9f42d34d01306b9a942491338d9342db19ab0035"
         },
         {
           "path": "runtime/worker.js",
@@ -213,7 +213,7 @@
         },
         {
           "path": "src/bridge.rs",
-          "sha256": "8fb92f72ccb2eb813ffdf38764baa422e78718a82bbde6e453328b5c11b4c753"
+          "sha256": "f59520a4a78514ea154671fd2d269b0dc7777d7a2f52c7798c873c4512fd55af"
         },
         {
           "path": "src/lib.rs",
@@ -221,7 +221,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "ce767de45177609ef02e45800cf6699b3d736e5aaa13df14d7ddb5f10f408144"
+          "sha256": "e3bd43d158444356151dbca7a55a8c3e0708eeae4081db09c9eab2d1a20eae1d"
         },
         {
           "path": "src/music_canvas.rs",
@@ -233,31 +233,31 @@
         },
         {
           "path": "src/music_source.rs",
-          "sha256": "61ae61dea86f345bbf09a63873c34c7bb3aab03a947f2a90c2896508a302a00c"
+          "sha256": "53d272d27367eba816f85eb781a0553df7ee2f6e1408db8fa234460c8a28b5c4"
         },
         {
           "path": "src/state.rs",
-          "sha256": "a6513924885b905c87d680096c4214c8990e625b8b016e092d04a76398dd73e7"
+          "sha256": "7638da16b927b1a88fff7352d8d0c5f55b6aa5eb86451b8ebba4c25648b95833"
         },
         {
           "path": "worker/src/lib.rs",
-          "sha256": "1389d6c3c221b44b660af8c945d361415aa2844b4454026a0c34640acdbde8d6"
+          "sha256": "3bee89cf3c64b375de7f1af10533225e046d346c14ddc7cf521f2d51a580867a"
         },
         {
           "path": "worker/src/music.rs",
-          "sha256": "4565a2d9ac9502a498340e567c627450d7f8b3cf0de21ba7827d40e0e3544ea7"
+          "sha256": "3bd04954654f757906eb8f0d92b0ad3058f66a51318a3c54266d4e03570217b5"
         },
         {
           "path": "worker/src/music_text.rs",
-          "sha256": "ba18a63bdcbf247ee5b7e02ea93353ca4f5ae21389715498caf405de28e737f4"
+          "sha256": "27707f2b41f9ba28ac28917e471392fdf2758c3fa8f462ffe0d6f47e94381764"
         },
         {
           "path": "worker/src/state.rs",
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "0022b03a856b8ccc770ea17cacb42f621e2132c57bc5a1af609a7dbb11b34afc",
-      "result_tree": "47ac7992b89bae6fcec66ad4ba86a8b35cac9eb8"
+      "patch_sha256": "38a4f63907c5377bf7dcd909a44471843f2c2e13647a3d2c8e8e4bb6245750bd",
+      "result_tree": "6432d0c06b8b03087a14a650fda4b3b76d4ed161"
     },
     {
       "name": "hearsay",

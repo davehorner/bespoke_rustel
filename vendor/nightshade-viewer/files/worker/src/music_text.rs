@@ -12,9 +12,67 @@ pub fn face_text_scale(width: f32, depth: f32, text_width: f32, text_height: f32
     (width * 0.85 / text_width).min(depth * 0.75 / text_height)
 }
 
+pub struct BlockFace {
+    pub offset: [f32; 3],
+    pub rotation: [f32; 3],
+    pub size: [f32; 2],
+}
+pub fn block_faces([x, y, z]: [f32; 3]) -> [BlockFace; 6] {
+    [
+        BlockFace { offset: [0.0, y/2.0+0.006, 0.0], rotation: [-90.0, 0.0, 0.0], size: [x,z] },
+        BlockFace { offset: [0.0, -y/2.0-0.006, 0.0], rotation: [90.0, 0.0, 0.0], size: [x,z] },
+        BlockFace { offset: [0.0, 0.0, z/2.0+0.006], rotation: [0.0,0.0,0.0], size: [x,y] },
+        BlockFace { offset: [0.0, 0.0, -z/2.0-0.006], rotation: [0.0,180.0,0.0], size: [x,y] },
+        BlockFace { offset: [x/2.0+0.006, 0.0, 0.0], rotation: [0.0,90.0,0.0], size: [z,y] },
+        BlockFace { offset: [-x/2.0-0.006, 0.0, 0.0], rotation: [0.0,-90.0,0.0], size: [z,y] },
+    ]
+}
+
+pub fn rail_span(child: bool) -> (f32, f32) {
+    if child { (-5.5, 3.5) } else { (-9.0, 6.0) }
+}
+
+pub fn segment_distance(p: [f32;2], a: [f32;2], b: [f32;2]) -> f32 {
+    let dx=b[0]-a[0]; let dy=b[1]-a[1];
+    let t=(((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy).max(1e-6)).clamp(0.0,1.0);
+    ((p[0]-a[0]-t*dx).powi(2)+(p[1]-a[1]-t*dy).powi(2)).sqrt()
+}
+
+#[derive(Clone, Copy)]
+pub struct LabelRect { pub x:f32, pub y:f32, pub width:f32, pub height:f32 }
+impl LabelRect {
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.x < other.x+other.width && other.x < self.x+self.width
+            && self.y < other.y+other.height && other.y < self.y+self.height
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn six_faces_are_outside_the_box_and_use_their_own_dimensions() {
+        let faces=block_faces([4.0,2.0,1.0]);
+        assert_eq!(faces.len(),6);
+        assert!(faces[0].offset[1]>1.0 && faces[1].offset[1]< -1.0);
+        assert!(faces[2].offset[2]>0.5 && faces[3].offset[2]< -0.5);
+        assert!(faces[4].offset[0]>2.0 && faces[5].offset[0]< -2.0);
+        assert_eq!(faces[0].size,[4.0,1.0]);
+        assert_eq!(faces[2].size,[4.0,2.0]);
+        assert_eq!(faces[4].size,[1.0,2.0]);
+        let parent=rail_span(false); let child=rail_span(true);
+        assert!(child.0>parent.0 && child.1<parent.1);
+    }
+
+    #[test]
+    fn rail_hit_testing_and_axis_label_clearance() {
+        assert_eq!(segment_distance([5.0,3.0],[0.0,0.0],[10.0,0.0]),3.0);
+        assert_eq!(segment_distance([13.0,4.0],[0.0,0.0],[10.0,0.0]),5.0);
+        let title=LabelRect{x:0.0,y:0.0,width:100.0,height:20.0};
+        assert!(title.overlaps(&LabelRect{x:90.0,y:10.0,width:30.0,height:15.0}));
+        assert!(!title.overlaps(&LabelRect{x:0.0,y:25.0,width:30.0,height:15.0}));
+    }
 
     #[test]
     fn face_glyph_fits_short_and_long_blocks_without_stretching() {

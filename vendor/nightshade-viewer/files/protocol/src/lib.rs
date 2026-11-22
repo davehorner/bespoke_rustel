@@ -360,6 +360,7 @@ pub struct PolyhavenEntry {
 pub enum WorkerMessage {
     /// A click on an expandable music core-line heading, scoped to its parent.
     MusicToggleParts { lane: String },
+    MusicRevealSource { lane: String, part: String },
     Ready {
         context: String,
         adapter: String,
