@@ -1,0 +1,30 @@
+# Generated builds and downloaded dependencies
+**/target/
+**/node_modules/
+**/dist/
+**/.trunk/
+/BespokeSynth/ignore/
+
+# Local tools, profiles and runtime state
+/music-link/tools/
+/music-link/logs/
+/music-link/browser-test-profile/
+/music-link/launcher-state.json
+/music-link/launcher-state.json.tmp
+/music-link/launcher.lock
+/music-link/native-view-prefs.json
+/music-link/contribution/runtime/
+/music-link/upstream-contribution.zip
+
+# Compiler products and local diagnostics
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.wasm
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db

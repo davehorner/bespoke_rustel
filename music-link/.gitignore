@@ -1,0 +1,15 @@
+/target/
+/tools/
+/native-view-prefs.json
+/*.log
+/logs/
+/launcher-state.json
+/launcher-state.json.tmp
+/launcher.lock
+
+/browser-test-profile/
+/nightshade-*.png
+/nightshade-*.json
+
+# Generated contribution package (keep its sources and selected screenshots).
+/upstream-contribution.zip

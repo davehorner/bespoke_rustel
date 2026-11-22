@@ -1,0 +1,8 @@
+{
+  "modules": [
+    { "name": "rustel view", "type": "rustelview", "position": [30, 110] },
+    { "name": "rustel source", "type": "rustelpattern", "position": [790, 140] },
+    { "name": "transpose", "type": "rusteltranspose", "position": [790, 260] }
+  ],
+  "zoomlocations": []
+}

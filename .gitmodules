@@ -1,0 +1,12 @@
+[submodule "BespokeSynth"]
+	path = BespokeSynth
+	url = https://github.com/BespokeSynth/BespokeSynth.git
+[submodule "rustel"]
+	path = rustel
+	url = https://github.com/davehorner/rustel.git
+[submodule "nightshade-viewer"]
+	path = nightshade-viewer
+	url = https://github.com/matthewjberger/nightshade-viewer.git
+[submodule "hearsay"]
+	path = hearsay
+	url = https://github.com/matthewjberger/hearsay.git

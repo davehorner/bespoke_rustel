@@ -1,0 +1,167 @@
+{
+  "date": "2026-11-20",
+  "platform": "Windows x64",
+  "source_state": "Uncommitted integration changes; base hashes alone do not reproduce the prototype.",
+  "repositories": {
+    "rustel": {
+      "base_commit": "f5646b04358c3dffca77c65ac41e05134a3707ca",
+      "working_tree": [
+        " M Cargo.lock",
+        " M crates/cli/Cargo.toml",
+        " M crates/cli/src/live.rs",
+        " M crates/core/src/context_keys.rs",
+        " M crates/core/src/lib.rs",
+        " M crates/jsruntime/src/install/repl/lanes.rs",
+        " M crates/runtime/Cargo.toml",
+        " M crates/runtime/src/session.rs",
+        " M crates/runtime/src/session/scheduling.rs",
+        " M crates/runtime/src/ui_events.rs",
+        " M crates/runtime/src/vst/lanes.rs",
+        " M crates/scheduler/src/lib.rs",
+        " M crates/studio/Cargo.toml",
+        " M crates/studio/src/engine/ui_state.rs",
+        "?? crates/runtime/examples/",
+        "?? crates/runtime/src/session/music.rs",
+        "?? crates/runtime/tests/music_telemetry.rs"
+      ]
+    },
+    "BespokeSynth": {
+      "base_commit": "5eef6c04e9cf58852a5a78e2167ce0a4905e6588",
+      "working_tree": [
+        " M Source/CMakeLists.txt",
+        " M Source/ModuleFactory.cpp",
+        "?? Source/RustelLink.h",
+        "?? Source/RustelPattern.cpp",
+        "?? Source/RustelPattern.h",
+        "?? Source/RustelView.cpp",
+        "?? Source/RustelView.h",
+        "?? Source/RustelViewAudio.cpp",
+        "?? Source/RustelViewModes.cpp"
+      ]
+    },
+    "nightshade-viewer": {
+      "base_commit": "6c405d3655dc1683507aae67046a811ea8811274",
+      "working_tree": [
+        " M Cargo.lock",
+        " M Cargo.toml",
+        " M protocol/Cargo.toml",
+        " M protocol/src/lib.rs",
+        " M runtime/worker.js",
+        " M src/app.rs",
+        " M src/bridge.rs",
+        " M src/lib.rs",
+        " M src/state.rs",
+        " M worker/src/lib.rs",
+        " M worker/src/state.rs",
+        "?? src/music.rs",
+        "?? src/music_canvas.rs",
+        "?? src/music_geometry.rs",
+        "?? worker/src/music.rs"
+      ]
+    },
+    "hearsay": {
+      "base_commit": "033cf8ba3ef87614f45ac397d5cb940898433a5d",
+      "working_tree": []
+    }
+  },
+  "screenshots": [
+    {
+      "file": "screenshots/nightshade-control-curves.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "cae5829c9e989ceba6a7a95136298c5d5b5fb9c3df99e229088947d1b7c2bc1a"
+    },
+    {
+      "file": "screenshots/nightshade-piano-roll.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "68b5fb963db6450509cb2183f6bb878b9bc3c54df703624e85f71781f3560c0a"
+    },
+    {
+      "file": "screenshots/nightshade-pitch-wheel.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "994f4594f8ee420e95a339df51838ae22e13627396355ea43f02254b76f413dc"
+    },
+    {
+      "file": "screenshots/nightshade-scope.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "c67edc689474ac116bb90223fc488f5946a0dc83f07f902e8cdff3eb3da84422"
+    },
+    {
+      "file": "screenshots/nightshade-solo.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "b3e7e958ffdc2b1decc2842867c88480ca7ed33ecd0bd1020d0b6f515498d1cb"
+    },
+    {
+      "file": "screenshots/nightshade-spectrum.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "eedbe57a6279558adaea02aa9bce1c7f31cdd566bddf4035e32060c12377535e"
+    },
+    {
+      "file": "screenshots/nightshade-spiral.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "19f3fcd92651e51f28a74f9a89c0c52c9398c6eceb5377619d5430175ace1791"
+    },
+    {
+      "file": "screenshots/nightshade-stage.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "83c029a47489f068b6c10acc08c02541544fdd5d3408ef07abe453b129ed0cf0"
+    },
+    {
+      "file": "screenshots/nightshade-vectorscope.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "dd40e7bf577904135dc055ea052d0ffbb1bfc314d6ac6e6ed5373c95c7a74cf3"
+    },
+    {
+      "file": "screenshots/nightshade-wordfall.png",
+      "size": [
+        1600,
+        1000
+      ],
+      "sha256": "db7dd3b1c5a7c8100347c3a4e0ca349fec46ab8450584dbd5efcecdd56d2603c"
+    }
+  ],
+  "capture": {
+    "captured": "2026-11-20T09:50:57.398Z",
+    "session": "rustel-53080-1795167064861-0",
+    "views": [
+      "stage",
+      "piano-roll",
+      "wordfall",
+      "spiral",
+      "pitch-wheel",
+      "scope",
+      "spectrum",
+      "vectorscope",
+      "control-curves"
+    ],
+    "soloLane": "#3",
+    "exceptions": 0
+  },
+  "implementation_note": "Typed telemetry refactor applied after gallery capture; viewer UI and external protocol v1 remain unchanged."
+}
