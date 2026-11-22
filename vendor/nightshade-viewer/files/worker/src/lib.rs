@@ -2,6 +2,7 @@
 mod agent;
 mod ecs;
 mod music;
+mod music_text;
 mod state;
 mod systems;
 

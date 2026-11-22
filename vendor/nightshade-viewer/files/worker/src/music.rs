@@ -32,6 +32,8 @@ pub struct MusicScene {
     received: f64,
     lanes: Vec<LaneScene>,
     beats: Vec<Entity>,
+    beat_labels: Vec<(Entity, String)>,
+    pitch_labels: Vec<Entity>,
     playhead: Option<Entity>,
     mode: u8,
     lane_filter: String,
@@ -48,6 +50,8 @@ impl Default for MusicScene {
             received: 0.0,
             lanes: Vec::new(),
             beats: Vec::new(),
+            beat_labels: Vec::new(),
+            pitch_labels: Vec::new(),
             playhead: None,
             mode: 0,
             lane_filter: String::new(),
@@ -86,6 +90,38 @@ fn material(world: &mut World, entity: Entity, name: String, color: [f32; 3], gl
             ..Default::default()
         },
     );
+}
+
+/// Nightshade's text mesh already converts pixels to world units (0.01).
+/// Compensate only for camera depth/projection so labels stay readable on zoom.
+struct LabelCamera { clip: Mat4, projection_y: f32, height: f32 }
+impl LabelCamera {
+    fn read(world: &World) -> Option<Self> {
+        let camera = nightshade::ecs::camera::queries::query_active_camera_matrices(world)?;
+        let height = world.resources.window.cached_viewport_size?.1.max(1) as f32;
+        Some(Self { clip: camera.projection * camera.view, projection_y: camera.projection[(1, 1)].abs(), height })
+    }
+}
+fn label_pose(world: &mut World, camera: &Option<LabelCamera>, entity: Entity, position: Vec3, visible: bool, pixels: f32) {
+    let scale = camera.as_ref().and_then(|camera| {
+        let depth = (camera.clip * position.push(1.0)).w;
+        crate::music_text::world_scale_for_pixels(depth, camera.projection_y, camera.height, pixels)
+    });
+    pose(world, entity, position, if visible { scale.map_or(Vec3::zeros(), Vec3::repeat) } else { Vec3::zeros() });
+}
+
+fn set_label(world: &mut World, entity: Entity, previous: &mut String, value: &str) {
+    if previous == value { return; }
+    if let Some(text) = world.core.get_text(entity) { world.resources.text.cache.set_text(text.text_index, value); }
+    if let Some(text) = world.core.get_text_mut(entity) { text.dirty = true; }
+    *previous = value.to_owned();
+}
+
+fn axis_label(world: &mut World, value: &str) -> Entity {
+    spawn_3d_billboard_text_with_properties(world, value, Vec3::zeros(), TextProperties {
+        font_size: 16.0, color: Vec4::new(0.65, 0.78, 0.92, 1.0),
+        alignment: TextAlignment::Center, outline_width: 0.08, ..Default::default()
+    })
 }
 impl MusicScene {
     pub fn active(&self) -> bool {
@@ -132,7 +168,23 @@ impl MusicScene {
                     0.35,
                 );
                 self.beats.push(entity);
+                self.beat_labels.push((axis_label(world, ""), String::new()));
             }
+            // Persistent pitch axis and octave ticks; labels share the same
+            // MIDI-to-height mapping as the event boxes.
+            for octave in 1..=7 {
+                let note = (octave + 1) * 12;
+                let y = (note as f32 - 24.0) * 0.065 + 0.3;
+                let tick = spawn_cube_at(world, Vec3::zeros());
+                material(world, tick, format!("MusicPitchTick{octave}"), [0.2, 0.35, 0.5], 0.3);
+                pose(world, tick, Vec3::new(-9.0, y, -0.5), Vec3::new(0.22, 0.018, 0.035));
+                self.pitch_labels.push(axis_label(world, &format!("C{octave} / {note}")));
+            }
+            let axis = spawn_cube_at(world, Vec3::zeros());
+            material(world, axis, "MusicPitchAxis".into(), [0.2, 0.35, 0.5], 0.3);
+            pose(world, axis, Vec3::new(-9.0, 2.64, -0.5), Vec3::new(0.018, 4.68, 0.035));
+            self.pitch_labels.push(axis_label(world, "Pitch / MIDI"));
+            self.pitch_labels.push(axis_label(world, "Time / cycles"));
         }
         self.received = js_sys::Date::now();
         let mut snapshot = snapshot;
@@ -171,6 +223,8 @@ impl MusicScene {
             }
         }
         let depth = count.max(1) as f32 * 1.7;
+        // Resolve camera matrices once, rather than once per label/entity.
+        let label_camera = LabelCamera::read(world);
         let beat_pulse = (1.0 - ((cycle * 4.0).fract() as f32 * 5.0)).max(0.0);
         if self.orbit {
             let delta = world.resources.window.timing.delta_time;
@@ -314,8 +368,7 @@ impl MusicScene {
                             if let Some(text) = world.core.get_text_mut(*label) { text.dirty = true; }
                             *name = display;
                         }
-                        pose(world, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15),
-                            if name.is_empty() { Vec3::zeros() } else { Vec3::repeat(0.012) });
+                        label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
                         used += 1;
                         total_used += 1;
                     }
@@ -332,7 +385,7 @@ impl MusicScene {
                     if let Some(t) = world.core.get_text_mut(*entity) { t.dirty = true; }
                     *text = label.to_owned();
                 }
-                pose(world, *entity, Vec3::new(-7.5, 0.25, z), if index < count { Vec3::repeat(0.014) } else { Vec3::zeros() });
+                label_pose(world, &label_camera, *entity, Vec3::new(-7.5, 0.25, z), index < count, 13.0);
             }
             let visible = index < count;
             if let Some(rail) = lane.rail {
@@ -392,6 +445,16 @@ impl MusicScene {
                     depth,
                 ),
             );
+            let (label, previous) = &mut self.beat_labels[i];
+            let whole_cycle = (beat as i64).rem_euclid(4) == 0;
+            if whole_cycle { set_label(world, *label, previous, &format!("{:.0}", beat / 4.0)); }
+            label_pose(world, &label_camera, *label, Vec3::new((beat / 4.0 - cycle) as f32 * 5.0, -0.3, -0.65), whole_cycle, 11.0);
+        }
+        for (i, entity) in self.pitch_labels.iter().enumerate() {
+            let position = if i < 7 { Vec3::new(-9.65, i as f32 * 12.0 * 0.065 + 0.3, -0.5) }
+                else if i == 7 { Vec3::new(-9.0, 5.4, -0.5) }
+                else { Vec3::new(-3.0, -0.5, -1.0) };
+            label_pose(world, &label_camera, *entity, position, true, 11.0);
         }
         if let Some(entity) = self.playhead {
             // A low luminous bar leaves the note field unobscured.

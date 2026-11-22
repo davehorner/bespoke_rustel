@@ -241,19 +241,23 @@
         },
         {
           "path": "worker/src/lib.rs",
-          "sha256": "17e0ef0cdca72454f99f76cafe590494b31784c88b47be9786028173e653247d"
+          "sha256": "91befb3386111543c01c628b28839f3329204b03a265d53e95119fa1ea431e0b"
         },
         {
           "path": "worker/src/music.rs",
-          "sha256": "a17b4da903551b788993bd9ce13b9b576aa4a2a7d5ef8a255d657bec68861d30"
+          "sha256": "ecba8599408a5df3772823827a0c8808deb50a85babf4404b59c26a603bf2692"
+        },
+        {
+          "path": "worker/src/music_text.rs",
+          "sha256": "260e7d39af50210762e0bd32eb13d412b8ed94d9c440ada0d3b0325127295b19"
         },
         {
           "path": "worker/src/state.rs",
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "903250d5eaac8b368d1dee468dcdc0472885a94bd44c76477c8a7c2f669c2a73",
-      "result_tree": "b53e068cef66e92c91798c685cbe05b25860edd9"
+      "patch_sha256": "90e251b220c15add02964072c33198d1ef09d3d1827ffdb772c10cdf090957b1",
+      "result_tree": "b11995c47424cf9f34804cbcdabd628fd197ba97"
     },
     {
       "name": "hearsay",
