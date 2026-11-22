@@ -12,6 +12,25 @@ SIZE = 4096 + 15 * 16384 * 2 * 8
 POSIX_NAME = re.compile(r"/rla-([0-9a-f]{1,8})-[0-9a-f]{1,16}\Z")
 
 
+def windows_mapping_exists(name):
+    """Inspect without mmap's create-if-missing behavior on Windows."""
+    if not name.startswith("Local\\RustelAudio-"):
+        raise ValueError("Unexpected Windows lane mapping name")
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenFileMappingW.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_wchar_p]
+    kernel.OpenFileMappingW.restype = ctypes.c_void_p
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int
+    handle = kernel.OpenFileMappingW(4, False, name)  # FILE_MAP_READ; never creates.
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 2:  # ERROR_FILE_NOT_FOUND
+            return False
+        raise ctypes.WinError(error)
+    kernel.CloseHandle(handle)
+    return True
+
+
 def posix_lib():
     library = ctypes.CDLL(None, use_errno=True)
     if not hasattr(library, "shm_open"):

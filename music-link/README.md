@@ -434,14 +434,16 @@ also verifies that removing a lane does not recycle its export slot. Existing
 build and protocol checks cover normal playback with export disabled.
 
 
-For a headless Rust-writer/C++-reader IPC contract test on macOS/Linux:
+For a headless Rust-writer/C++-reader IPC contract test on Windows, macOS or Linux:
 
 ```sh
 python3 music-link/tests/check_native_ipc.py
 ```
 
 This compiles the shipping vendored writer/reader with deterministic sample
-blocks, checks tagged stereo reads, lease mute/recovery, normal unlink and
-hard-crash cleanup. It needs stable Rust, a C++17 compiler and Python 3, but no
-audio SDKs or device. The full application probe is
+blocks and checks tagged stereo reads, lease mute/recovery and mapping cleanup
+after normal exit or a hard crash. It needs stable Rust, a C++17 compiler and
+Python 3, but no audio SDKs or device. Windows uses CMake with Visual Studio 2022
+and the Windows SDK; run it with `python` rather than `python3` if needed. The
+portable CI matrix runs the IPC check on all three operating systems. The full application probe is
 `python3 music-link/check-lane-audio.py --bespoke` after native builds.

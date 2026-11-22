@@ -9,18 +9,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            python: python3
+          - os: macos-latest
+            python: python3
+          - os: windows-latest
+            python: python
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Check shell entry points
+        if: runner.os != 'Windows'
         run: |
           for script in Setup.sh "Start Music.sh" "Start Music.command"; do
             test -x "$script"
             sh -n "$script"
           done
           sh "Start Music.sh" --help
+      - name: Check Windows PowerShell entry points
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($file in @('Setup.ps1', 'vendor/apply.ps1', 'music-link/start.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
       - name: Test setup and process ownership
-        run: python3 -m unittest discover -s music-link/tests -p 'test_*.py' -v
+        run: ${{ matrix.python }} -m unittest discover -s music-link/tests -p 'test_*.py' -v
       - name: Test native lane audio IPC
-        run: python3 music-link/tests/check_native_ipc.py
+        run: ${{ matrix.python }} music-link/tests/check_native_ipc.py
