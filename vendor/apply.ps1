@@ -3,6 +3,14 @@
 param([switch]$Initialize)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
+$python = Get-Command python -ErrorAction SilentlyContinue
+if ($python) {
+    $arguments = @((Join-Path $PSScriptRoot 'setup.py'), '--upgrade')
+    if ($Initialize) { $arguments += '--initialize' }
+    & $python.Source @arguments
+    if ($LASTEXITCODE -ne 0) { throw 'Vendor source setup failed; local edits were preserved.' }
+    return
+}
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
 if ($manifest.version -ne 1) { throw 'Unsupported vendor manifest version.' }
 if ($Initialize) {

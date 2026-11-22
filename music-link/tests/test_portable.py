@@ -28,6 +28,7 @@ def module(name, path):
 
 setup = module("portable_setup", ROOT / "vendor/setup.py")
 start = module("portable_start", ROOT / "music-link/start_music.py")
+build_inputs = module("build_inputs_check", ROOT / "music-link/build_inputs.py")
 
 
 class SetupTests(unittest.TestCase):
@@ -92,6 +93,47 @@ class SetupTests(unittest.TestCase):
     def test_manifest_path_cannot_escape_source_copy_directory(self):
         with self.assertRaisesRegex(RuntimeError, "escapes workspace"):
             setup.checked_path(self.root, "../outside")
+
+    def prepare_old_snapshot_upgrade(self):
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.root), *args], stderr=subprocess.DEVNULL)
+        git("init", "-q")
+        git("config", "user.name", "Portable test")
+        git("config", "user.email", "test@example.invalid")
+        git("add", "vendor")
+        git("commit", "-qm", "previous vendored snapshot")
+        for project in self.manifest["projects"]:
+            repo = self.root / project["name"]
+            (repo / "code.txt").write_bytes(b"updated integration\n")
+            patch = subprocess.check_output(["git", "-C", str(repo), "diff", "--binary", "--full-index"])
+            folder = self.root / "vendor" / project["name"]
+            (folder / "changes.patch").write_bytes(patch)
+            (folder / "files/code.txt").write_bytes(b"updated integration\n")
+            project["patch_sha256"] = hashlib.sha256(patch).hexdigest()
+            project["files"][0]["sha256"] = hashlib.sha256(b"updated integration\n").hexdigest()
+            (repo / "code.txt").write_bytes(b"integrated\n")
+        (self.root / "vendor/manifest.json").write_text(json.dumps(self.manifest))
+
+    def test_upgrade_applies_new_snapshot_to_previous_integration(self):
+        self.prepare_old_snapshot_upgrade()
+        self.apply(upgrade=True)
+        self.assertEqual((self.root / "one/code.txt").read_bytes(), b"updated integration\n")
+
+    def test_upgrade_preserves_unknown_edits_before_any_write(self):
+        self.prepare_old_snapshot_upgrade()
+        (self.root / "two/code.txt").write_bytes(b"my custom source\n")
+        with self.assertRaisesRegex(RuntimeError, "conflicting local edits"):
+            self.apply(upgrade=True)
+        self.assertEqual((self.root / "one/code.txt").read_bytes(), b"integrated\n")
+        self.assertEqual((self.root / "two/code.txt").read_bytes(), b"my custom source\n")
+
+    def test_binary_is_stale_after_source_update(self):
+        artifact = self.root / "app"
+        artifact.write_bytes(b"old build")
+        os.utime(artifact, ns=(1, 1))
+        self.assertTrue(build_inputs.needs_build("one", artifact, self.root))
+        os.utime(artifact, ns=(time.time_ns()+1_000_000_000, time.time_ns()+1_000_000_000))
+        self.assertFalse(build_inputs.needs_build("one", artifact, self.root))
 
 
 class ViewerStartupTests(unittest.TestCase):

@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from native_ipc import unlink_stopped_mapping
+from build_inputs import needs_build
 
 ROOT = Path(__file__).resolve().parent.parent
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -96,7 +97,7 @@ def bespoke_candidates(root, platform):
 
 def build_viewer(root, rebuild):
     viewer = root / "nightshade-viewer"
-    if (viewer / "dist/index.html").is_file() and not rebuild:
+    if not rebuild and not needs_build("nightshade-viewer", viewer / "dist/index.html", root):
         return
     for tool in ("cargo", "rustup", "npm", "trunk"):
         if not shutil.which(tool):
@@ -210,6 +211,7 @@ class Launcher:
         score = Path(args.score).expanduser().resolve()
         if not score.is_file():
             raise RuntimeError(f"Score not found: {score}")
+        subprocess.run([sys.executable, str(self.root / "vendor/setup.py"), "--upgrade", "--ensure"], check=True)
         # Permit ongoing source edits; startup must not reapply a vendor snapshot
         # or demand byte-for-byte agreement with it during development.
         required = ["rustel/crates/runtime/src/session/music.rs", "BespokeSynth/Source/RustelView.cpp",
@@ -218,14 +220,20 @@ class Launcher:
             raise RuntimeError("Integration source is missing; run ./Setup.sh before starting")
         hub = self.folder / "target/debug/music-hub"
         rustel = self.root / "rustel/target/debug/rustel"
-        if args.build or not hub.is_file():
+        if args.build or needs_build("music-link", hub, self.root):
+            if hub.is_file() and find_existing(hub):
+                raise RuntimeError("Hub source was updated; stop the running hub before rebuilding")
             run(["cargo", "build", "--manifest-path", self.folder / "Cargo.toml", "--bin", "music-hub"], self.root)
-        if args.build or not rustel.is_file():
+        if args.build or needs_build("rustel", rustel, self.root):
+            if rustel.is_file() and find_existing(rustel):
+                raise RuntimeError("Rustel source was updated; close Rustel before rebuilding")
             run(["cargo", "build", "--manifest-path", self.root / "rustel/Cargo.toml", "-p", "rustel",
                  "--no-default-features", "--features", "studio,music-link"], self.root)
         candidates = bespoke_candidates(self.root, sys.platform)
         bespoke = next((p for p in candidates if p.is_file()), None)
-        if not args.no_bespoke and (args.build or bespoke is None):
+        if not args.no_bespoke and (args.build or bespoke is None or needs_build("BespokeSynth", bespoke, self.root)):
+            if bespoke and find_existing(bespoke):
+                raise RuntimeError("Bespoke source was updated. Save and close Bespoke, then rerun start_music.sh to rebuild; the old executable will not be reused")
             build = self.root / "BespokeSynth/ignore/music-build-posix"
             run(["cmake", "-S", self.root / "BespokeSynth", "-B", build, "-DCMAKE_BUILD_TYPE=Release",
                  "-DBESPOKE_ENABLE_PYTHON=ON"], self.root)

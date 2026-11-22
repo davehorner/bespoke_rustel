@@ -63,6 +63,26 @@ function Invoke-Build([string]$Tool, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "Build failed ($Tool, exit $LASTEXITCODE). Close the affected app before rebuilding. No running apps were terminated." }
 }
 
+function Test-NeedsBuild([string]$Project, [string]$Executable) {
+    if ($Build -or !(Test-Path -LiteralPath $Executable)) { return $true }
+    $result = & python (Join-Path $PSScriptRoot 'build_inputs.py') $Project $Executable
+    if ($LASTEXITCODE -ne 0) { throw 'Could not check build freshness.' }
+    return $result -eq 'true'
+}
+
+function Prepare-Rebuild([string]$Executable) {
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($Executable)
+    foreach ($process in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
+        if ($process.Path -ne $Executable) { continue }
+        if ($name -eq 'BespokeSynth') {
+            Write-Host 'Bespoke source was updated. Requesting normal close before rebuilding; save any patch if prompted.'
+            $null = $process.CloseMainWindow()
+            if ($process.WaitForExit(3000)) { continue }
+        }
+        throw "$name needs rebuilding. Save your work and close it, then rerun start_music.cmd. The old executable will not be reused."
+    }
+}
+
 function Ensure-Process([string]$Role, [string]$Executable, [string[]]$Arguments, [string[]]$Names, [string[]]$AcceptPaths) {
     foreach ($candidate in @(Get-Process -Name $Names -ErrorAction SilentlyContinue | Sort-Object @{Expression={try { if ($_.Path -eq $Executable) { 0 } else { 1 } } catch { 1 }}},Id)) {
         try { $path = $candidate.Path } catch { continue }
@@ -106,7 +126,7 @@ function Ensure-Process([string]$Role, [string]$Executable, [string[]]$Arguments
 function Start-NightshadeViewer {
     $dist = Join-Path $workspace 'nightshade-viewer/dist'
     if ($WebPort -lt 1024 -or $WebPort -gt 65535) { throw 'WebPort must be between 1024 and 65535.' }
-    if ($Build -or !(Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
+    if (Test-NeedsBuild 'nightshade-viewer' (Join-Path $dist 'index.html')) {
         $bindgen = Join-Path (Join-Path $workspace 'music-link') 'tools/bin/wasm-bindgen.exe'
         if (!(Test-Path -LiteralPath $bindgen)) {
             Invoke-Build 'cargo' @('install', 'wasm-bindgen-cli', '--version', '0.2.115', '--root', (Join-Path (Join-Path $workspace 'music-link') 'tools'), '--locked')
@@ -171,13 +191,16 @@ try {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Push-Location $workspace
     try {
+        & python (Join-Path $workspace 'vendor/setup.py') --upgrade --ensure
+        if ($LASTEXITCODE -ne 0) { throw 'Could not prepare current vendored source; local edits were preserved.' }
         $hubExe = Join-Path $PSScriptRoot 'target/debug/music-hub.exe'
         $rustelExe = Join-Path $workspace 'rustel/target/debug/rustel.exe'
         $bespokeDirectory = Join-Path $workspace 'BespokeSynth/ignore/music-build/Source/BespokeSynth_artefacts/Release'
         $bespokeExe = Join-Path $bespokeDirectory 'BespokeSynth.exe'
-        if ($Build -or !(Test-Path -LiteralPath $hubExe)) { Invoke-Build 'cargo' @('build', '--manifest-path', 'music-link/Cargo.toml', '--bin', 'music-hub') }
-        if ($Build -or !(Test-Path -LiteralPath $rustelExe)) { Invoke-Build 'cargo' @('build', '--manifest-path', 'rustel/Cargo.toml', '-p', 'rustel', '--no-default-features', '--features', 'studio,music-link') }
-        if ($Build -or !(Test-Path -LiteralPath $bespokeExe)) {
+        if (Test-NeedsBuild 'music-link' $hubExe) { Prepare-Rebuild $hubExe; Invoke-Build 'cargo' @('build', '--manifest-path', 'music-link/Cargo.toml', '--bin', 'music-hub') }
+        if (Test-NeedsBuild 'rustel' $rustelExe) { Prepare-Rebuild $rustelExe; Invoke-Build 'cargo' @('build', '--manifest-path', 'rustel/Cargo.toml', '-p', 'rustel', '--no-default-features', '--features', 'studio,music-link') }
+        if (Test-NeedsBuild 'BespokeSynth' $bespokeExe) {
+            Prepare-Rebuild $bespokeExe
             if (!(Test-Path -LiteralPath (Join-Path $workspace 'BespokeSynth/libs/JUCE/CMakeLists.txt'))) {
                 Invoke-Build 'git' @('-C', 'BespokeSynth', 'submodule', 'update', '--init', '--recursive')
             }
