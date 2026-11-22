@@ -91,7 +91,11 @@ and inside piano-roll blocks; unpitched hits show `x`. Fractional pitches retain
 their cent offsets. Glyphs fit the block footprint without a background plate;
 zoom in to read very short notes. Part names remain above the 3D blocks and on
 their virtual-lane headings. Wordfall uses the same note/hit notation.
-Core rails also carry flat text inscriptions. Virtual-part rails are shorter
+Bespoke's Stage also labels every block face with this note/hit notation.
+Glyphs follow each projected face and its depth order as you rotate the stage,
+without mirrored text or hidden-side labels bleeding through. Short notes have
+smaller face labels; zoom in for readability. Part-name labels remain separate.
+In Nightshade, core rails also carry flat text inscriptions. Virtual-part rails are shorter
 and inset beneath their playback parent. Time-axis captions and ticks sit in
 their own gutter, separate from the rails; crowded axis values are suppressed
 instead of overlapping captions or one another.

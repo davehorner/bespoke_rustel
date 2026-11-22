@@ -3,6 +3,8 @@
 #include "OpenFrameworksPort.h"
 #include "FileStream.h"
 #include "ModularSynth.h"
+#include "RustelNoteGlyph.h"
+#include "nanovg/nanovg.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -23,6 +25,9 @@ namespace
       std::array<Screen, 4> points;
       ofColor color;
       float depth;
+      const std::string* note{ nullptr };
+      Point center{}, right{}, down{};
+      float textScale{ 0 }, textWidth{ 0 }, textHeight{ 0 };
    };
    ofColor WithAlpha(ofColor color, int alpha)
    {
@@ -218,6 +223,8 @@ void RustelView::Poll()
          if (!std::isfinite(begin) || !std::isfinite(duration) || !std::isfinite(original) || !std::isfinite(pitch) || !std::isfinite(gain))
             continue;
          Event parsed{ int(lane - lanes.begin()), begin, duration, original, pitch, std::clamp(gain, 0.0f, 1.0f) };
+         const auto pitchValue = event["pitch"];
+         parsed.note = RustelNoteGlyph::Format(pitchValue.isDouble() || pitchValue.isInt() || pitchValue.isInt64(), pitch);
          parsed.part = event["part"].toString().substring(0, 64).toStdString();
          if (auto* rgb = event["part_color"].getArray(); rgb && rgb->size() == 3)
             for (int c = 0; c < 3; ++c) parsed.partColor[c] = std::clamp(int((*rgb)[c]), 0, 255);
@@ -358,7 +365,7 @@ void RustelView::DrawModule()
       std::vector<PartLabel> labels;
       std::vector<Face> faces;
       faces.reserve(std::min<size_t>(mEvents.size() * 12, 12000));
-      auto box = [&](Point p, Point size, ofColor color, bool ghost)
+      auto box = [&](Point p, Point size, ofColor color, bool ghost, const std::string* note = nullptr)
       {
          std::array<Screen, 8> corners;
          for (int i = 0; i < 8; ++i)
@@ -373,8 +380,29 @@ void RustelView::DrawModule()
                face.points[i] = corners[indices[f][i]];
                face.depth += face.points[i].depth * 0.25f;
             }
+            // The corner lists wind inward; this camera looks along positive
+            // depth, so negative screen area faces it. Skip hidden/edge-on sides.
+            const float area = (face.points[1].x - face.points[0].x) * (face.points[2].y - face.points[0].y)
+                             - (face.points[1].y - face.points[0].y) * (face.points[2].x - face.points[0].x);
+            if (!ghost && area >= -0.01f)
+               continue;
             face.color = color * (ghost ? 0.45f : (f == 2 ? 1.0f : 0.68f));
-            face.color.a = ghost ? 85 : 235;
+            face.color.a = ghost ? 85 : 255;
+            if (!ghost && note && !note->empty())
+            {
+               face.note = note;
+               face.center = { p.x + size.x * 0.5f, p.y + size.y * 0.5f, p.z + size.z * 0.5f };
+               float width = size.x, height = size.y;
+               if (f == 0) { face.center.z = p.z; face.right = { 1, 0, 0 }; face.down = { 0, -1, 0 }; }
+               if (f == 1) { face.center.z = p.z + size.z; face.right = { -1, 0, 0 }; face.down = { 0, -1, 0 }; }
+               if (f == 2) { face.center.y = p.y + size.y; face.right = { 1, 0, 0 }; face.down = { 0, 0, -1 }; height = size.z; }
+               if (f == 3) { face.center.y = p.y; face.right = { 1, 0, 0 }; face.down = { 0, 0, 1 }; height = size.z; }
+               if (f == 4) { face.center.x = p.x; face.right = { 0, 0, -1 }; face.down = { 0, -1, 0 }; width = size.z; }
+               if (f == 5) { face.center.x = p.x + size.x; face.right = { 0, 0, 1 }; face.down = { 0, -1, 0 }; width = size.z; }
+               face.textWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth(*note, 12));
+               face.textHeight = std::max(1.0f, gFontFixedWidth.GetStringHeight(*note, 12));
+               face.textScale = std::min(width * 0.8f / face.textWidth, height * 0.65f / face.textHeight);
+            }
             faces.push_back(face);
          }
       };
@@ -409,7 +437,7 @@ void RustelView::DrawModule()
                   labels.push_back({ project({ x + length * 0.5f, (event.pitch - 24) * 0.065f + 0.55f + hit * 0.35f, z + 0.1f }), event.part, eventColor });
                if (mTraces)
                   box({ x, (event.original - 24) * 0.065f + 0.3f, z - 0.25f }, { length, 0.035f, 0.055f }, eventColor, true);
-               box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, eventColor, false);
+               box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, eventColor, false, &event.note);
             }
          const float radius = 0.3f + pulse * 0.65f;
          for (int segment = 0; segment < 32; ++segment)
@@ -430,7 +458,38 @@ void RustelView::DrawModule()
                    return a.depth > b.depth;
                 });
       for (const auto& face : faces)
+      {
          Polygon(face.points, face.color);
+         if (!face.note || face.textScale <= 0)
+            continue;
+         // Draw each glyph in its face's local tangent frame. Evaluating the
+         // projection per character follows perspective across longer labels.
+         float offset = -face.textWidth * 0.5f;
+         for (char character : *face.note)
+         {
+            const std::string glyph(1, character);
+            const float baseline = face.textHeight * 0.35f;
+            auto sample = [&](float u, float v)
+            {
+               return project({ face.center.x + (face.right.x * u + face.down.x * v) * face.textScale,
+                                face.center.y + (face.right.y * u + face.down.y * v) * face.textScale,
+                                face.center.z + (face.right.z * u + face.down.z * v) * face.textScale });
+            };
+            const auto origin = sample(offset, baseline);
+            const auto u = sample(offset + 1, baseline), v = sample(offset, baseline + 1);
+            const float ux = u.x - origin.x, uy = u.y - origin.y;
+            const float vx = v.x - origin.x, vy = v.y - origin.y;
+            if (std::abs(ux * vy - uy * vx) > 0.00001f)
+            {
+               ofPushMatrix();
+               nvgTransform(gNanoVG, ux, uy, vx, vy, origin.x, origin.y);
+               ofSetColor(5, 9, 18);
+               gFontFixedWidth.DrawString(glyph, 12, 0, 0);
+               ofPopMatrix();
+            }
+            offset += gFontFixedWidth.GetStringWidth(glyph, 12);
+         }
+      }
       line({ 0, 0, -0.6f }, { 0, 0, centerZ * 2 + 0.6f }, ofColor(190, 225, 255, 200), 2);
       for (const auto& label : labels)
       {

@@ -32,6 +32,10 @@
           "sha256": "bad4764c09b053a9a01b6875becfbda8f921f24b787983b124c71d1200c32707"
         },
         {
+          "path": "Source/RustelNoteGlyph.h",
+          "sha256": "7879d569c421b26bf0a2cadbfd27042e06813ca2451aa81050c1a13b89b0dc82"
+        },
+        {
           "path": "Source/RustelPattern.cpp",
           "sha256": "087aff59b8ea35b9678b8ce60c4b43eedea97fe032d6d6c8d836c75bf4f19dcd"
         },
@@ -41,11 +45,11 @@
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "63a36a2ba3261f20bf0523edc6b2f0b3d56281f5865d4383a88ddb225617f0c1"
+          "sha256": "65f7a92d502105d57003eface75c34840b0d9accb547461da86906b409106702"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "6a6ef9bb243e7c56323ec0cdab2c450e6b49b1ac9c73cfe579f1135610d6d497"
+          "sha256": "2dd61815322d53448714fbe21e6abf9a187bde3cc9898bd835dd48f5f8e71869"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -56,8 +60,8 @@
           "sha256": "c32c1c62cddbde08746f833a71ebadb3254b5227d514df0c808832be2c167009"
         }
       ],
-      "patch_sha256": "601c9f7459fc5b89c66002b3d3f1aa9a1a18b91e61f9148bc2e6d9a2b31c4c75",
-      "result_tree": "bd596be1b0e908278193976d50fbbbbfd43754eb"
+      "patch_sha256": "544ebb7cc0b1c263e3629a96c34ae44e9b155acdc36df1a56500dbf9d6d0281b",
+      "result_tree": "00e296e27f5464113273be62248a58b47016f017"
     },
     {
       "name": "rustel",

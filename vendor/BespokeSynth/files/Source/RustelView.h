@@ -43,6 +43,7 @@ private:
       double cycle{ 0 }, duration{ 0 };
       float original{ 48 }, pitch{ 48 }, gain{ 0.8f };
       std::string part;
+      std::string note;
       std::array<int, 3> partColor{};
       std::vector<std::pair<int, int>> context;
       std::array<double, 4> controls{};
