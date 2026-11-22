@@ -207,10 +207,15 @@ try {
         }
 
         $preferences = Join-Path $PSScriptRoot 'native-view-prefs.json'
-        if (!(Test-Path -LiteralPath $preferences)) {
-            @{ layout = (Join-Path $PSScriptRoot 'native-view-layout.json').Replace('\', '/'); audio_input_device = 'none'; audio_output_device = 'auto' } |
-                ConvertTo-Json | Set-Content -LiteralPath $preferences
+        $demoPreferences = if (Test-Path -LiteralPath $preferences) {
+            Get-Content -LiteralPath $preferences -Raw | ConvertFrom-Json -AsHashtable
+        } else {
+            @{ layout = (Join-Path $PSScriptRoot 'native-view-layout.json').Replace('\', '/'); audio_input_device = 'none'; audio_output_device = 'auto' }
         }
+        # Demo purposes only: open the music patch directly without the welcome overlay.
+        # Update existing demo preferences too; leave normal Bespoke preferences alone.
+        $demoPreferences['show_welcome_screen'] = $false
+        $demoPreferences | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $preferences
         $null = Ensure-Process 'bespoke' $bespokeExe @($preferences) @('BespokeSynth') @($bespokeExe)
 
         if ($Web -and !$NoWeb) { Start-NightshadeViewer }

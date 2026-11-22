@@ -249,9 +249,13 @@ class Launcher:
                      "No lane audio export from this Rustel. Rebuild the new source, or stop an existing process started without lane audio and relaunch.")
         if not args.no_bespoke:
             preferences = self.folder / "native-view-prefs-posix.json"
-            if not preferences.exists():
-                preferences.write_text(json.dumps({"layout": str(self.folder / "native-view-layout.json"),
-                                                  "audio_input_device": "none", "audio_output_device": "auto"}, indent=2))
+            demo_preferences = (json.loads(preferences.read_text()) if preferences.exists() else
+                                {"layout": str(self.folder / "native-view-layout.json"),
+                                 "audio_input_device": "none", "audio_output_device": "auto"})
+            # Demo purposes only: open the music patch without the welcome overlay.
+            # Preserve other demo settings; do not modify normal Bespoke preferences.
+            demo_preferences["show_welcome_screen"] = False
+            preferences.write_text(json.dumps(demo_preferences, indent=2) + "\n")
             self.ensure("bespoke", bespoke, [preferences], cwd=self.root / "BespokeSynth")
         if args.web:
             self.start_web(args)

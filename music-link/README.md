@@ -23,6 +23,8 @@ before reporting ready. It prints `http://127.0.0.1:18765/?music=1` and opens
 Nightshade in your browser on every launch, including when the server is reused.
 Run it again without duplicating those apps. It does not close existing
 patches or replace an existing Rustel session's score.
+For demo purposes, the launcher disables the welcome overlay in its dedicated
+Bespoke preferences file. Normal Bespoke preferences are unchanged.
 
 Options: `-Status` checks connections; Nightshade is enabled by default (`-Web`
 is still accepted). `-NoWeb` disables it, and `-NoOpen` serves it and prints its

@@ -110,8 +110,10 @@ def main():
                                          "binding": snapshot["session"] + "/" + lane, "target": f"test sink {i}"},
                                         {"name": f"test sink {i}", "type": "gain", "position": [440, 80 + i * 100]}]
                         layout.write_text(json.dumps({"modules": modules, "zoomlocations": []}), encoding="utf-8")
+                        # Demo/test purposes only: expose the test patch without the welcome overlay.
                         preferences.write_text(json.dumps({"layout": str(layout).replace("\\", "/"),
-                                                           "audio_input_device": "none", "audio_output_device": "auto"}), encoding="utf-8")
+                                                           "audio_input_device": "none", "audio_output_device": "auto",
+                                                           "show_welcome_screen": False}), encoding="utf-8")
                         # Sinks have no output connection: this tests native callback
                         # consumption without sending the probe to the speakers.
                         if os.name == "nt":
