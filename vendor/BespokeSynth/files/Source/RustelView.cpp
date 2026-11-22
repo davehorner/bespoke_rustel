@@ -67,6 +67,7 @@ void RustelView::CreateUIControls()
    mZoomSlider = new FloatSlider(this, "zoom", 270, 30, 120, 15, &mZoom, 0.2f, 5.0f);
    mOrbitCheckbox = new Checkbox(this, "orbit", 410, 30, &mOrbit);
    mSoloCheckbox = new Checkbox(this, "solo", 480, 30, &mSolo);
+   mPartsCheckbox = new Checkbox(this, "parts", 535, 30, &mShowParts);
    mResetCamera = new ClickButton(this, "reset", 595, 30);
 
 }
@@ -93,6 +94,7 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
       mLaneId.clear();
       mLaneIndex = -1;
       mLanes.clear();
+      mExpanded.clear();
       mEvents.clear();
       mLive = false;
       mSourceScroll = 0;
@@ -155,6 +157,11 @@ void RustelView::Poll()
       return;
    mGeneration = generation;
    mDocument = session["source"].toString().toStdString();
+   mBindings.clear();
+   if (auto* bindings = session["bindings"].getArray())
+      for (const auto& binding : *bindings)
+         if (auto* rgb = binding["color"].getArray(); rgb && rgb->size() == 3)
+            mBindings.push_back({ int(binding["from"]), int(binding["to"]), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])) });
    mCycle = cycle;
    mCps = cps;
    mReceived = juce::Time::getMillisecondCounterHiRes();
@@ -165,6 +172,10 @@ void RustelView::Poll()
          if (lanes.size() >= 64)
             break;
          lanes.push_back({ lane["id"].toString().toStdString(), lane["label"].toString().toStdString(), lane["source"].toString().toStdString(), int(lane["transpose"]) });
+         if (auto* parts = lane["parts"].getArray())
+            for (const auto& part : *parts)
+               if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
+                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])) });
       }
    bool changed = lanes.size() != mLanes.size();
    if (!changed)
@@ -207,6 +218,9 @@ void RustelView::Poll()
          if (!std::isfinite(begin) || !std::isfinite(duration) || !std::isfinite(original) || !std::isfinite(pitch) || !std::isfinite(gain))
             continue;
          Event parsed{ int(lane - lanes.begin()), begin, duration, original, pitch, std::clamp(gain, 0.0f, 1.0f) };
+         parsed.part = event["part"].toString().substring(0, 64).toStdString();
+         if (auto* rgb = event["part_color"].getArray(); rgb && rgb->size() == 3)
+            for (int c = 0; c < 3; ++c) parsed.partColor[c] = std::clamp(int((*rgb)[c]), 0, 255);
          if (auto* ranges = event["context"].getArray())
             for (const auto& range : *ranges)
                if (range.size() == 2 && parsed.context.size() < 64)
@@ -221,6 +235,27 @@ void RustelView::Poll()
          }
          mEvents.push_back(std::move(parsed));
       }
+}
+
+int RustelView::EventRow(const Event& event) const
+{
+   int parent = -1;
+   for (int i = 0; i < int(mRows.size()); ++i)
+      if (mRows[i].lane == event.lane)
+      {
+         if (!mRows[i].child) parent = i;
+         else if (mRows[i].part == event.part) return i;
+      }
+   return parent;
+}
+
+ofColor RustelView::RowColor(int row) const
+{
+   const auto& track = mRows[row];
+   if (track.child)
+      for (const auto& part : mLanes[track.lane].parts)
+         if (part.name == track.part) return part.color;
+   return kColors[track.lane % kColors.size()];
 }
 
 void RustelView::DrawModule()
@@ -246,6 +281,7 @@ void RustelView::DrawModule()
    mZoomSlider->Draw();
    mOrbitCheckbox->Draw();
    mSoloCheckbox->Draw();
+   mPartsCheckbox->Draw();
    mResetCamera->Draw();
    const double now = juce::Time::getMillisecondCounterHiRes();
    const double dt = mLastFrame > 0 ? std::clamp((now - mLastFrame) / 1000.0, 0.0, 0.1) : 0;
@@ -259,7 +295,28 @@ void RustelView::DrawModule()
    for (int i = 0; i < int(mLanes.size()); ++i)
       if (mLaneId.empty() || mLanes[i].id == mLaneId)
          visible.push_back(i);
-   const int count = int(visible.size());
+   mRows.clear();
+   mRowButtons.clear();
+   bool allOpen = !visible.empty();
+   bool hasParts = false;
+   for (int index : visible)
+   {
+      const auto& lane = mLanes[index];
+      const bool open = mExpanded.count(lane.id) && !lane.parts.empty();
+      if (!lane.parts.empty()) { hasParts = true; allOpen &= open; }
+      auto expression = juce::String(lane.source).trim();
+      auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
+      if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
+         expression = expression.fromFirstOccurrenceOf(":", false, false).trim();
+      expression = expression.upToFirstOccurrenceOf("\n", false, false).trim();
+      std::string name = expression.isEmpty() ? lane.label : expression.substring(0, 96).toStdString();
+      mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
+      if (open)
+         for (const auto& part : lane.parts)
+            if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name, true });
+   }
+   mShowParts = hasParts && allOpen;
+   const int count = int(mRows.size());
    ofSetColor(live ? ofColor(80, 235, 200) : ofColor(150, 160, 175));
    DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "MASTER AUDIO ANALYSIS" : (live ? "LIVE PATTERN FIELD" : "WAITING FOR RUSTEL"), 12, 70);
    ofSetColor(155, 175, 200);
@@ -297,6 +354,8 @@ void RustelView::DrawModule()
          float x = float(b / 4 - cycle) * 5;
          line({ x, -0.1f, -0.5f }, { x, -0.1f, centerZ * 2 + 0.5f }, ofColor(35, 55, 80, int64_t(b) % 4 == 0 ? 150 : 65), int64_t(b) % 4 == 0 ? 1.2f : 0.6f);
       }
+      struct PartLabel { Screen point; std::string name; ofColor color; };
+      std::vector<PartLabel> labels;
       std::vector<Face> faces;
       faces.reserve(std::min<size_t>(mEvents.size() * 12, 12000));
       auto box = [&](Point p, Point size, ofColor color, bool ghost)
@@ -322,16 +381,20 @@ void RustelView::DrawModule()
       int totalRendered = 0;
       for (int row = 0; row < count; ++row)
       {
-         int lane = visible[row];
+         int lane = mRows[row].lane;
          float z = row * 1.7f;
-         auto color = kColors[lane % kColors.size()];
+         auto color = RowColor(row);
+         const auto heading = project({ -8.7f, 0.25f, z });
+         labels.push_back({ heading, mRows[row].label, color });
+         if (!mRows[row].child && !mLanes[lane].parts.empty())
+            mRowButtons.push_back({ ofRectangle(heading.x - 3, heading.y - 12, std::min(340.0f, float(mRows[row].label.size() * 6)), 18), mLanes[lane].id });
          line({ -9, 0, z }, { 6, 0, z }, WithAlpha(color, 80), 1.4f);
          float pulse = 0;
          int rendered = 0;
          if (live)
             for (const auto& event : mEvents)
             {
-               if (event.lane != lane || event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 2)
+               if (EventRow(event) != row || event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 2)
                   continue;
                float elapsed = float((cycle - event.cycle) / mCps);
                float hit = elapsed >= 0 ? std::exp(-elapsed * 7) : 0;
@@ -341,9 +404,12 @@ void RustelView::DrawModule()
                ++totalRendered;
                float x = float(event.cycle - cycle) * 5;
                float length = float(std::clamp(event.duration, 0.012, 3.0)) * 5;
+               auto eventColor = event.part.empty() ? color : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
+               if (!event.part.empty())
+                  labels.push_back({ project({ x + length * 0.5f, (event.pitch - 24) * 0.065f + 0.55f + hit * 0.35f, z + 0.1f }), event.part, eventColor });
                if (mTraces)
-                  box({ x, (event.original - 24) * 0.065f + 0.3f, z - 0.25f }, { length, 0.035f, 0.055f }, color, true);
-               box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, color, false);
+                  box({ x, (event.original - 24) * 0.065f + 0.3f, z - 0.25f }, { length, 0.035f, 0.055f }, eventColor, true);
+               box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, eventColor, false);
             }
          const float radius = 0.3f + pulse * 0.65f;
          for (int segment = 0; segment < 32; ++segment)
@@ -366,6 +432,11 @@ void RustelView::DrawModule()
       for (const auto& face : faces)
          Polygon(face.points, face.color);
       line({ 0, 0, -0.6f }, { 0, 0, centerZ * 2 + 0.6f }, ofColor(190, 225, 255, 200), 2);
+      for (const auto& label : labels)
+      {
+         ofSetColor(label.color);
+         DrawTextNormal(label.name, label.point.x, label.point.y, 10);
+      }
       ofPopMatrix(); // Restore the parent's module clip before drawing footer.
       ofPopStyle();
    }
@@ -385,10 +456,10 @@ void RustelView::DrawModule()
    DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "master tap (pre gain/limiter) / lane selection does not isolate audio / display gain is visual only" : (live ? (mViewMode == 0 ? "drag: orbit / right or shift-drag: pan / wheel: zoom / code panel: scroll" : "drag: pan / wheel: zoom / code panel: scroll") : mStatus + " / start Rustel with RUSTEL_MUSIC_LINK=1"), 12, mHeight - 12, 10);
    for (int i = 0; i < std::min(count, 12); ++i)
    {
-      int lane = visible[i];
+      int lane = mRows[i].lane;
       float x = 12 + i * (mWidth - 24) / std::max(1, std::min(count, 12));
-      ofSetColor(kColors[lane % kColors.size()]);
-      DrawTextNormal(mLanes[lane].id + " " + (mLanes[lane].transpose >= 0 ? "+" : "") + ofToString(mLanes[lane].transpose), x, bottom + 18);
+      ofSetColor(RowColor(i));
+      DrawTextNormal(mRows[i].child ? mRows[i].part : mLanes[lane].id, x, bottom + 18, 9);
    }
    const float sourceTop = bottom + 30;
    const float sourceBottom = mHeight - 28;
@@ -433,6 +504,13 @@ bool RustelView::InNoteField(float x, float y)
 void RustelView::OnClicked(float x, float y, bool right)
 {
    IDrawableModule::OnClicked(x, y, right);
+   if (!right && mViewMode == 0)
+      for (const auto& button : mRowButtons)
+         if (button.first.contains(x, y))
+         {
+            if (mExpanded.count(button.second)) mExpanded.erase(button.second); else mExpanded.insert(button.second);
+            return;
+         }
    if (!InNoteField(x, y) || IsKeyHeld(' ') || (GetKeyModifiers() & kModifier_Alt))
       return;
    mCameraDragging = true;
@@ -484,6 +562,15 @@ void RustelView::MouseReleased()
 
 void RustelView::CheckboxUpdated(Checkbox* checkbox, double)
 {
+   if (checkbox == mPartsCheckbox)
+   {
+      for (const auto& lane : mLanes)
+         if (mLaneId.empty() || lane.id == mLaneId)
+         {
+            if (mShowParts) mExpanded.insert(lane.id); else mExpanded.erase(lane.id);
+         }
+      return;
+   }
    if (checkbox != mSoloCheckbox) return;
    if (mLaneId.empty() || !mLive) { mSolo = false; return; }
    RustelLink::Solo(mSessionId, mGeneration, mLaneId, mSolo);
@@ -589,7 +676,8 @@ float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cyc
                float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
                float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
                ofFill();
-               ofSetColor(kColors[event.lane % kColors.size()], 85);
+               auto tint = event.part.empty() ? kColors[event.lane % kColors.size()] : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
+               ofSetColor(tint, 85);
                ofRect(x, y - 12, width, 16);
             }
          }
@@ -597,6 +685,15 @@ float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cyc
       {
          ofSetColor(210, 224, 240);
          gFontFixedWidth.DrawString(row, 11, 16, y);
+         for (const auto& binding : mBindings)
+         {
+            size_t a = std::max(begin, size_t(std::max(0, binding.from)));
+            size_t b = std::min(end, size_t(std::max(0, binding.to)));
+            if (b <= a) continue;
+            ofSetColor(binding.color);
+            float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
+            gFontFixedWidth.DrawString(mDocument.substr(a, b - a), 11, x, y);
+         }
       }
       y += 16;
       begin = end;
@@ -631,15 +728,15 @@ void RustelView::DrawControls(const std::vector<int>& visible, double cycle, boo
       ofSetColor(180, 210, 235, 100);
       ofLine(xAt(cycle), y + 4, xAt(cycle), y + height - 8);
       if (!live) continue;
-      for (int lane : visible)
+      for (int row = 0; row < int(mRows.size()); ++row)
       {
          std::vector<const Event*> samples;
          for (const auto& event : mEvents)
-            if (event.lane == lane && event.hasControl[control]) samples.push_back(&event);
+            if (EventRow(event) == row && event.hasControl[control]) samples.push_back(&event);
          std::stable_sort(samples.begin(), samples.end(), [](const Event* a, const Event* b) { return a->cycle < b->cycle; });
          bool previous = false;
          float px = 0, py = 0;
-         ofSetColor(kColors[lane % kColors.size()]);
+         ofSetColor(RowColor(row));
          for (const auto* event : samples)
          {
             double value = control == 2 ? std::log10(std::max(1.0, event->controls[control])) : event->controls[control];

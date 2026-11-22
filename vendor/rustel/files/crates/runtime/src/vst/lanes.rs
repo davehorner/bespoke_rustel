@@ -158,6 +158,7 @@ impl LaneTable {
             .lanes
             .iter()
             .map(|lane| music_link::Lane {
+                parts: Vec::new(),
                 id: format!("#{}", lane.number),
                 label: lane.label.clone(),
                 source: if lane.label.is_empty() {

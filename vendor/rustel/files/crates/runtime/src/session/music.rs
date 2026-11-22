@@ -156,12 +156,24 @@ impl Session {
         let generation = self.generation();
         let cycle = self.cycle_at_time(now);
         let cps = self.cps();
-        let lanes = self.lanes.music_lanes();
+        let mut lanes = self.lanes.music_lanes();
         let source = self.active_source().unwrap_or_default().to_owned();
         let state = &mut self.music;
-        state.snapshot.source = source;
+        if state.snapshot.source != source {
+            state.snapshot.bindings = rustel_transpiler::setup_definitions(&source)
+                .top_level_declarations.into_iter().filter(|d| d.kind == "const")
+                .map(|d| music_link::Binding {
+                    color: music_link::named_color(&d.name), name: d.name, from: d.from, to: d.to,
+                }).collect();
+            state.snapshot.source = source;
+        }
         if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
             state.snapshot.events.clear();
+        }
+        if state.snapshot.generation == generation {
+            for lane in &mut lanes {
+                if let Some(old) = state.snapshot.lanes.iter().find(|old| old.id == lane.id) { lane.parts = old.parts.clone(); }
+            }
         }
         state.snapshot.generation = generation;
         state.snapshot.cycle = cycle;
@@ -229,11 +241,21 @@ impl Session {
                 continue;
             };
             let offset = state.offsets.get(lane).copied().unwrap_or(0);
+            if let Some(part) = observation.part.as_deref().filter(|name| !name.is_empty()) {
+                if let Some(parent) = state.snapshot.lanes.iter_mut().find(|l| l.id == lane) {
+                    if parent.parts.len() < 64 && !parent.parts.iter().any(|p| p.name == part) {
+                        parent.parts.push(music_link::NamedPart { name: part.to_owned(), color: music_link::named_color(part) });
+                        parent.parts.sort_by_key(|p| state.snapshot.bindings.iter().position(|b| b.name == p.name).unwrap_or(usize::MAX));
+                    }
+                }
+            }
             let original = transpose(&mut event.value, offset);
             let Some(controls) = controls(&event.value) else {
                 continue;
             };
             state.snapshot.events.push(Event {
+                part_color: music_link::named_color(observation.part.as_deref().unwrap_or_default()),
+                part: observation.part.as_deref().unwrap_or_default().to_owned(),
                 context: observation.context.clone(),
                 controls: ["gain", "pan", "cutoff", "resonance"]
                     .into_iter()

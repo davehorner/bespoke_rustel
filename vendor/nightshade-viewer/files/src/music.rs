@@ -197,6 +197,7 @@ pub fn MusicPanel(
                 send(
                     bridge,
                     &ClientMessage::MusicView {
+                        expanded: state.music_expanded.get_untracked(),
                         orbit: orbit.get_untracked(),
                         ghosts: false,
                         mode: state.music_mode.get_untracked(),
@@ -209,6 +210,7 @@ pub fn MusicPanel(
     Effect::new(move |_| {
         state.music_mode.get();
         state.music_lane.get();
+        state.music_expanded.get();
         configure();
     });
     view! {
@@ -289,6 +291,9 @@ pub fn MusicPanel(
                             let expanded = RwSignal::new(false);
                             let lane_id = lane.id.clone();
                             let metadata_id = lane.id.clone();
+                            let expand_id = lane.id.clone();
+                            let checked_id = lane.id.clone();
+                            let part_count_id = lane.id.clone();
                             let line = lane.line;
                             view! { <div class="music-lane" style:border-top=format!("2px solid {}", palette[i % 8])>
                                 <details on:toggle=move |event| {
@@ -301,6 +306,12 @@ pub fn MusicPanel(
                                     <crate::music_source::MusicSource state source lane=lane_id line color=palette[i % 8] expanded />
                                 </details>
                                 <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("{}  /  LINE {}  /  {:+} ST", metadata_id, line, transpose) }}</div>
+                                <label class="music-lane-meta">
+                                    <input type="checkbox" aria-label="Expand named parts"
+                                        prop:checked=move || state.music_expanded.with(|ids| ids.contains(&checked_id))
+                                        on:change=move |e| { let open=event_target_checked(&e); state.music_expanded.update(|ids| { ids.retain(|id| id != &expand_id); if open { ids.push(expand_id.clone()); } }); } />
+                                    {move || state.music.with(|s| format!(" Expand parts ({})", s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())))}
+                                </label>
                             </div> }
                             }
                         />

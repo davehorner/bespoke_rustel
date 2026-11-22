@@ -135,6 +135,8 @@ pub struct MorphInfo {
 #[cfg_attr(feature = "agent", derive(enum2schema::Schema))]
 pub enum ClientMessage {
     MusicView {
+        #[serde(default)]
+        expanded: Vec<String>,
         orbit: bool,
         ghosts: bool,
         #[serde(default)]

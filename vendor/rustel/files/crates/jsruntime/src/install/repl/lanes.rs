@@ -27,6 +27,16 @@ fn state<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Array<'js>> {
     host_stack(ctx)?.as_object().get(LANE_STATE)
 }
 
+fn part<'js>(ctx: Ctx<'js>, name: String, value: rquickjs::Value<'js>, fallback: bool)
+    -> rquickjs::Result<rquickjs::Value<'js>> {
+    if rquickjs::Class::<NativePatternWrapper>::from_value(&value).is_err() {
+        return Ok(value);
+    }
+    let (pattern, sidecar) = reify_bridged(&ctx, &value)?;
+    let pattern = pattern.with_part_context(std::sync::Arc::from(name), fallback);
+    Ok(derive_wrapper(ctx, pattern, &[sidecar])?.into_value())
+}
+
 fn all<'js>(
     ctx: Ctx<'js>,
     args: Rest<rquickjs::Value<'js>>,
@@ -374,6 +384,7 @@ pub(super) fn install<'js>(
         .set(LANE_STATE, state)
         .map_err(|error| error.to_string())?;
 
+    globals.set("__rustel_part", Function::new(ctx.clone(), part).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let all = Function::new(ctx.clone(), all).map_err(|error| error.to_string())?;
     configure_function(&all, "", 1, false).map_err(|error| error.to_string())?;
     globals.set("all", all).map_err(|error| error.to_string())?;

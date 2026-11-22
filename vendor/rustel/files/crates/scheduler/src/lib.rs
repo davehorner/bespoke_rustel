@@ -80,6 +80,7 @@ pub struct Event {
 pub struct ScheduleTraceEvent {
     /// Host provenance; absent for untagged patterns.
     pub lane: Option<Arc<str>>,
+    pub part: Option<Arc<str>>,
     pub onset_id: u64,
     pub generation: Generation,
     pub whole_begin: Fraction,
@@ -243,6 +244,7 @@ impl ScheduleTraceEvent {
         let value_show = hap.value.show();
         Some(Self {
             lane: hap.lane_context().map(Arc::from),
+            part: hap.part_context().map(Arc::from),
             onset_id,
             generation,
             whole_begin: whole.begin,
@@ -2575,6 +2577,7 @@ mod tests {
             scheduler.set_pattern(
                 atom("bd")
                     .with_lane_context(Arc::from("#2"))
+                    .with_part_context(Arc::from("cedar"), false)
                     .map_haps_native(|hap| Some(hap.clone().with_context(vec![(4, 8), (13, 21)]))),
                 clock.now(),
             );
@@ -2586,6 +2589,7 @@ mod tests {
             assert_eq!(traces.len(), 1);
             assert_eq!(traces[0].context, vec![(4, 8), (13, 21)]);
             assert_eq!(traces[0].lane.as_deref(), Some("#2"));
+            assert_eq!(traces[0].part.as_deref(), Some("cedar"));
             if let Some(telemetry) = &events[0].telemetry {
                 assert_eq!(**telemetry, traces[0]);
             }
@@ -2611,6 +2615,7 @@ mod tests {
             traces[0],
             ScheduleTraceEvent {
                 lane: None,
+                part: None,
                 onset_id: 0,
                 generation,
                 whole_begin: Fraction::ZERO,

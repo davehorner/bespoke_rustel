@@ -149,7 +149,7 @@ fn handle_message(scope: &DedicatedWorkerGlobalScope, app_slot: &AppSlot, event:
 /// (`ViewerAction`), so both drive the viewer through exactly the same code.
 pub(crate) fn apply_client_message(world: &mut World, viewer: &mut Viewer, message: ClientMessage) {
     match message {
-        ClientMessage::MusicView { orbit, ghosts, mode, lane } => viewer.music.configure(orbit, ghosts, mode, lane),
+        ClientMessage::MusicView { orbit, ghosts, mode, lane, expanded } => viewer.music.configure(orbit, ghosts, mode, lane, expanded),
         ClientMessage::MusicSnapshot(snapshot) => viewer.music.receive(snapshot, world),
         ClientMessage::PointerMove { x, y } => {
             input_inject_cursor_moved(world, Vec2::new(x, y));

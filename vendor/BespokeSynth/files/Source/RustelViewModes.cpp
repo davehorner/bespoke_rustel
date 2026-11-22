@@ -98,23 +98,19 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
    ofClipWindow(2, top, mWidth - 4, bottom - top, true);
    if (mViewMode <= 2)
    {
-      for (int pitch = int(low); pitch <= int(high); ++pitch)
+      for (int row = 0; row < int(mRows.size()); ++row)
       {
-         bool octave = pitch % 12 == 0;
-         auto color = ofColor(35, 55, 78, octave ? 170 : 65);
-         if (mViewMode == 1)
+         const float rh = std::max(64.0f, height / std::max<size_t>(1, mRows.size()));
+         const float rw = std::max(110.0f, width / std::max<size_t>(1, mRows.size()));
+         for (int pitch = int(low); pitch <= int(high); pitch += 12)
          {
-            float y = pitchY(float(pitch));
-            line(left, y, left + width, y, color);
-            if (octave)
-               text(std::string("C") + ofToString(pitch / 12 - 1), left - 30, y + 3, ofColor(120, 150, 175));
-         }
-         else
-         {
-            float x = pitchX(float(pitch));
-            line(x, edge, x, edge + height, color);
-            if (octave)
-               text(std::string("C") + ofToString(pitch / 12 - 1), x, edge + height + 12, ofColor(120, 150, 175));
+            if (mViewMode == 1) {
+               float y = edge + (row + 1) * rh - (pitch-low)/(high-low) * (rh-18);
+               line(left, y, left+width, y, ofColor(35,55,78,100));
+            } else {
+               float x = left + row * rw + (pitch-low)/(high-low) * rw;
+               line(x, edge, x, edge+height, ofColor(35,55,78,100));
+            }
          }
       }
       for (int beat = -6; beat <= 2; ++beat)
@@ -149,6 +145,16 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
          text(notes[pitch], cx + std::cos(a) * (radius + 15) - 5, cy + std::sin(a) * (radius + 15) + 3, ofColor(145, 175, 200));
       }
    }
+   if (mViewMode <= 2)
+      for (int row = 0; row < int(mRows.size()); ++row)
+      {
+         float rh = std::max(64.0f, height / std::max<size_t>(1, mRows.size()));
+         float rw = std::max(110.0f, width / std::max<size_t>(1, mRows.size()));
+         if (mViewMode == 1) {
+            line(left, edge + row * rh, left + width, edge + row * rh, ofColor(40, 65, 85, 120));
+            text(mRows[row].label, left, edge + row * rh + 12, RowColor(row));
+         } else text(mRows[row].label, left + row * rw, edge + 12, RowColor(row));
+      }
    int rendered = 0;
    if (live)
       for (const auto& event : mEvents)
@@ -157,6 +163,12 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
             continue;
          if (rendered++ >= 1024)
             break;
+         const int row = EventRow(event);
+         if (row < 0) continue;
+         const float rowHeight = std::max(64.0f, height / std::max<size_t>(1, mRows.size()));
+         const float rowWidth = std::max(110.0f, width / std::max<size_t>(1, mRows.size()));
+         auto rowPitchY = [&](float p) { return edge + (row + 1) * rowHeight - (p-low)/(high-low) * std::max(1.0f, rowHeight-18); };
+         auto rowPitchX = [&](float p) { return left + row * rowWidth + (p-low)/(high-low) * rowWidth; };
          bool sounding = event.cycle <= cycle && event.cycle + event.duration > cycle;
          float elapsed = float((cycle - event.cycle) / mCps);
          float hit = elapsed >= 0 ? std::exp(-elapsed * 7) : 0;
@@ -165,17 +177,19 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
             if (source && !mTraces)
                continue;
             float pitch = source ? event.original : event.pitch;
-            auto color = colors[event.lane % colors.size()];
+            auto color = event.part.empty() ? colors[event.lane % colors.size()] : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
             color.a = source ? 65 : (sounding ? 255 : 150);
             if (mViewMode == 1)
             {
-               float h = std::max(2.0f, height / (high - low) * 0.75f);
-               rect(timeX(event.cycle), pitchY(pitch) - h * 0.5f, std::max(2.0f, float(event.duration) * width / 2), source ? 1.5f : h, color);
+               float h = std::max(event.part.empty() ? 2.0f : 12.0f, height / (high - low) * 0.75f);
+               rect(timeX(event.cycle), rowPitchY(pitch) - h * 0.5f, std::max(2.0f, float(event.duration) * width / 2), source ? 1.5f : h, color);
+               if (!source && !event.part.empty()) text(event.part, timeX(event.cycle) + 2, rowPitchY(pitch) - 9, color);
             }
             else if (mViewMode == 2)
             {
                float w = std::max(3.0f, width / (high - low) * 0.65f);
-               rect(pitchX(pitch) - w * 0.5f, timeY(event.cycle + event.duration), source ? 1.5f : w, std::max(3.0f, float(event.duration) * height / 2), color);
+               rect(rowPitchX(pitch) - w * 0.5f, timeY(event.cycle + event.duration), source ? 1.5f : w, std::max(3.0f, float(event.duration) * height / 2), color);
+               if (!source && !event.part.empty()) text(event.part, rowPitchX(pitch) + 4, timeY(event.cycle + event.duration) + 10, color);
             }
             else if (mViewMode == 3)
             {
@@ -189,6 +203,7 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
                   previous = next;
                }
                circle(p.x, p.y, source ? 2 : 3 + hit * 5, color, !source);
+               if (!source && !event.part.empty()) text(event.part, p.x + 5, p.y - 5, color);
             }
             else
             {

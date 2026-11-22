@@ -360,6 +360,18 @@ impl Hap {
     }
 
     /// Host lane provenance, separate from score control values and JS context keys.
+    /// Name of the score's pattern binding; host metadata, never a sound control.
+    pub fn part_context(&self) -> Option<&str> {
+        self.keys.get().part.as_deref()
+    }
+
+    pub fn with_part_context(mut self, part: Arc<str>, fallback: bool) -> Self {
+        if !fallback || self.keys.get().part.is_none() {
+            self.keys.edit().part = Some(part);
+        }
+        self
+    }
+
     pub fn lane_context(&self) -> Option<&str> {
         self.keys.get().lane.as_deref()
     }
@@ -6272,6 +6284,7 @@ impl Pattern {
                                 keys: ContextKeys::merge(
                                     &ContextKeys::of(context_keys::Keys {
                                         lane: None,
+                                        part: None,
                                         scale: context
                                             .and_then(|context| context.get("scale"))
                                             .and_then(|scale| match scale {
@@ -7536,6 +7549,11 @@ impl Pattern {
     }
 
     /// Tag host provenance without rewriting values or dropping direct live controls.
+    /// Composition bindings fill unnamed events without hiding named children.
+    pub fn with_part_context(&self, part: Arc<str>, fallback: bool) -> Self {
+        self.map_haps_owned(move |hap| Some(hap.with_part_context(part.clone(), fallback)))
+    }
+
     pub fn with_lane_context(&self, lane: Arc<str>) -> Self {
         self.map_haps_owned(move |hap| Some(hap.with_lane_context(lane.clone())))
     }

@@ -94,6 +94,15 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
     let mut parts = Vec::new();
     let mut index = 0;
     for (a, b, class) in tokens(&source) {
+        let identifier = source[a..b].to_owned();
+        let tint = Memo::new(move |_| {
+            if class != "plain" && class != "function" { return String::new(); }
+            state.music.with(|snapshot| snapshot.as_ref().and_then(|s|
+                s.bindings.iter().find(|b| b.name == identifier).map(|b| {
+                    let [r,g,b] = b.color;
+                    format!("color:#{r:02x}{g:02x}{b:02x};")
+                })).unwrap_or_default())
+        });
         for c in source[a..b].chars() {
             let character = index;
             index += 1;
@@ -101,8 +110,8 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
                 <span class=format!("music-token-{class}") style=move || {
                     let offset = offsets.with(|o| o.get(character).copied().flatten());
                     if offset.is_some_and(|offset| active.with(|ranges| ranges.iter().any(|&(a,b)| a <= offset && offset < b))) {
-                        format!("background:{color}55;box-shadow:inset 0 -2px {color}")
-                    } else { String::new() }
+                        format!("{}background:{color}55;box-shadow:inset 0 -2px {color}", tint.get())
+                    } else { tint.get() }
                 }>{c.to_string()}</span>
             });
         }

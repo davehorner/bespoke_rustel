@@ -28,6 +28,70 @@ Bespoke preferences file. Normal Bespoke preferences are unchanged.
 The demo patch opens with `rustel source` already connected to `transpose`;
 select a live lane in the source node to use it.
 
+After pulling integration updates, the launcher applies the current vendored
+sources and rebuilds binaries and the web viewer when their inputs are newer.
+It upgrades only recognized earlier integration versions; conflicting local edits
+stop setup before it changes any project. Save and close running apps before a
+rebuild. The demo patch is loaded on a fresh Bespoke launch.
+
+## Named pattern colors
+
+With the music bridge enabled, top-level `const` pattern bindings automatically
+name their events. No instrument-name configuration is needed:
+
+```javascript
+const moon = note("c3 e3").s("sine")
+const cedar = note("g4").s("triangle")
+const piece = arrange([4, stack(moon, cedar)], [4, moon])
+$: piece
+```
+
+Bespoke and Nightshade color event boxes by `moon` or `cedar` and label them
+with those names. A deterministic hash of the UTF-8 name generates the color;
+RGB values travel with the events so both viewers agree. Moving declarations
+or filtering lanes keeps colors stable. Renaming a variable changes its color.
+Source const names use the same colors.
+
+A derived part replaces its helper's name (`const guitar = harmony.voicing()`
+becomes `guitar`). Bindings composed with `stack` or `arrange` preserve named
+children and give their own name only to unnamed events. Unnamed events retain
+lane colors. This is visual provenance within an existing lane, so audio outputs,
+solo and transpose still operate on playback lanes. Top-level identifier const
+bindings are supported; destructuring and declarations inside functions are not
+automatically named. Generated hues can occasionally be similar.
+
+## Expand arrangements into virtual lanes
+
+Each `$:` playback lane can expand independently into its named parts. For example:
+
+```javascript
+const bass = note("c2 g2").s("sine")
+const lead = note("e4 g4").s("triangle")
+const verse = arrange([4, stack(bass, lead)], [4, bass])
+const drums = stack(s("bd*4"), s("hh*8"))
+$: verse
+$: drums
+```
+
+The first parent line is labeled `verse`; expanding it creates `bass` and `lead`
+tracks. The second parent can expand separately. Reusing a part in two parents
+creates a track under each, without merging their events. Inline unnamed events
+stay on the parent line. Collapsing puts all events back on their parent.
+
+In Nightshade, check **Expand parts** in each existing lane card. In Bespoke,
+click `[+]` / `[-]` on a Stage core-line label, or use **parts** for the selected
+parent (**all lanes** applies the toggle to every parent). Stage, piano roll and
+wordfall separate the tracks spatially; other event views retain their shared
+geometry and part colors. Drag to pan and zoom to inspect larger arrangements.
+Event-name labels have transparent backgrounds.
+
+Parts are discovered from the events Rustel actually schedules, without querying
+patterns a second time. They stay registered through rests and repeated cycles
+until the score generation changes; a part in a later section appears when that
+section is first scheduled. Names are ordered by their declarations in the score.
+These are visual lanes: solo, transpose and `rustelaudio` still address the `$:`
+playback parent. Virtual IDs are never sent as audio/control targets.
+
 Options: `-Status` checks connections; Nightshade is enabled by default (`-Web`
 is still accepted). `-NoWeb` disables it, and `-NoOpen` serves it and prints its
 URL without opening a browser;

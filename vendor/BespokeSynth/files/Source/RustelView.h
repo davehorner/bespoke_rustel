@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <set>
 
 class RustelView : public IDrawableModule, public IDropdownListener, public IFloatSliderListener, public IButtonListener
 {
@@ -29,25 +30,37 @@ public:
    int GetModuleSaveStateRev() const override { return 1; }
 
 private:
+   struct NamedPart { std::string name; ofColor color; };
    struct Lane
    {
       std::string id, label, source;
       int transpose{ 0 };
+      std::vector<NamedPart> parts;
    };
    struct Event
    {
       int lane{ 0 };
       double cycle{ 0 }, duration{ 0 };
       float original{ 48 }, pitch{ 48 }, gain{ 0.8f };
+      std::string part;
+      std::array<int, 3> partColor{};
       std::vector<std::pair<int, int>> context;
       std::array<double, 4> controls{};
       std::array<bool, 4> hasControl{};
    };
    void DrawModule() override;
+   struct VisualRow { int lane; std::string part, label; bool child; };
+   std::vector<VisualRow> mRows;
+   std::set<std::string> mExpanded;
+   std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
+   int EventRow(const Event& event) const;
+   ofColor RowColor(int row) const;
    void DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    void DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    float DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y);
    std::string mDocument;
+   struct Binding { int from, to; ofColor color; };
+   std::vector<Binding> mBindings;
    void PollAudio();
    void DrawAudioView(float top, float bottom, double dt);
    std::vector<float> mAudioScope, mAudioSpectrum;
@@ -73,6 +86,8 @@ private:
    FloatSlider* mZoomSlider{ nullptr };
    Checkbox* mOrbitCheckbox{ nullptr };
    Checkbox* mSoloCheckbox{ nullptr };
+   Checkbox* mPartsCheckbox{ nullptr };
+   bool mShowParts{ false };
    ClickButton* mResetCamera{ nullptr };
    bool mCameraDragging{ false }, mPanDragging{ false };
    int mDragButton{ 1 };

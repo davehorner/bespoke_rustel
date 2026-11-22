@@ -24,6 +24,7 @@ pub(crate) struct ContextKeys(Option<Arc<Keys>>);
 pub(crate) struct Keys {
     /// Host lane provenance. It never changes the score value or JS context shape.
     pub(crate) lane: Option<Arc<str>>,
+    pub(crate) part: Option<Arc<str>>,
     /// `hap.context.scale`: set by `.scale()`, read by `.scaleTranspose()`.
     pub(crate) scale: Option<Arc<str>>,
     /// `hap.context.edoSize`: set by xen's `.xen()`/`.edo()`, read by
@@ -47,6 +48,7 @@ pub(crate) struct Keys {
 
 static NO_KEYS: Keys = Keys {
     lane: None,
+    part: None,
     scale: None,
     edo_size: None,
     scale_definition: None,
@@ -57,7 +59,7 @@ static NO_KEYS: Keys = Keys {
 impl ContextKeys {
     /// `keys`, sharing nothing when no key is set.
     pub(crate) fn of(keys: Keys) -> Self {
-        let empty = keys.lane.is_none()
+        let empty = keys.part.is_none() && keys.lane.is_none()
             && keys.scale.is_none()
             && keys.edo_size.is_none()
             && keys.scale_definition.is_none()
@@ -92,6 +94,7 @@ impl ContextKeys {
                 }
                 Self(Some(Arc::new(Keys {
                     lane: a.lane.clone().or_else(|| b.lane.clone()),
+                    part: a.part.clone().or_else(|| b.part.clone()),
                     scale: a.scale.clone().or_else(|| b.scale.clone()),
                     edo_size: a.edo_size.or(b.edo_size),
                     scale_definition: a
@@ -109,7 +112,8 @@ impl ContextKeys {
 impl Keys {
     /// Whether every key `other` has is set here, so a merge keeps these.
     fn covers(&self, other: &Self) -> bool {
-        (self.lane.is_some() || other.lane.is_none())
+        (self.part.is_some() || other.part.is_none())
+            && (self.lane.is_some() || other.lane.is_none())
             && (self.scale.is_some() || other.scale.is_none())
             && (self.edo_size.is_some() || other.edo_size.is_none())
             && (self.scale_definition.is_some() || other.scale_definition.is_none())

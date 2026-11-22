@@ -949,7 +949,7 @@ index 9fdb8ed71363568d290267bcdb20301bab0e665d..5c419bf90274ec094153248501526273
          // Hand this pass's serial writes to their port. Like MIDI the wire
          // has no notion of "later", so the sender schedules them; unlike MIDI
 diff --git a/crates/core/src/context_keys.rs b/crates/core/src/context_keys.rs
-index 3a8de90b0bf10db807b43ec5c3e03eebf97da16e..8fb3a1d7701f7f4dc7c31c40aee47737571bc9f2 100644
+index 3a8de90b0bf10db807b43ec5c3e03eebf97da16e..0a7dd3f4a40da995dd45a895deda9e97a590333a 100644
 --- a/crates/core/src/context_keys.rs
 +++ b/crates/core/src/context_keys.rs
 @@ -9,7 +9,7 @@ later version.
@@ -961,52 +961,56 @@ index 3a8de90b0bf10db807b43ec5c3e03eebf97da16e..8fb3a1d7701f7f4dc7c31c40aee47737
  //!
  //! Most haps carry none of them, so the keys sit behind one shared pointer
  //! that a clone copies. A change copies them first.
-@@ -22,6 +22,8 @@ pub(crate) struct ContextKeys(Option<Arc<Keys>>);
+@@ -22,6 +22,9 @@ pub(crate) struct ContextKeys(Option<Arc<Keys>>);
  
  #[derive(Clone, Debug, Default)]
  pub(crate) struct Keys {
 +    /// Host lane provenance. It never changes the score value or JS context shape.
 +    pub(crate) lane: Option<Arc<str>>,
++    pub(crate) part: Option<Arc<str>>,
      /// `hap.context.scale`: set by `.scale()`, read by `.scaleTranspose()`.
      pub(crate) scale: Option<Arc<str>>,
      /// `hap.context.edoSize`: set by xen's `.xen()`/`.edo()`, read by
-@@ -44,6 +46,7 @@ pub(crate) struct Keys {
+@@ -44,6 +47,8 @@ pub(crate) struct Keys {
  }
  
  static NO_KEYS: Keys = Keys {
 +    lane: None,
++    part: None,
      scale: None,
      edo_size: None,
      scale_definition: None,
-@@ -54,7 +57,8 @@ static NO_KEYS: Keys = Keys {
+@@ -54,7 +59,8 @@ static NO_KEYS: Keys = Keys {
  impl ContextKeys {
      /// `keys`, sharing nothing when no key is set.
      pub(crate) fn of(keys: Keys) -> Self {
 -        let empty = keys.scale.is_none()
-+        let empty = keys.lane.is_none()
++        let empty = keys.part.is_none() && keys.lane.is_none()
 +            && keys.scale.is_none()
              && keys.edo_size.is_none()
              && keys.scale_definition.is_none()
              && keys.tags.is_none()
-@@ -87,6 +91,7 @@ impl ContextKeys {
+@@ -87,6 +93,8 @@ impl ContextKeys {
                      return first.clone();
                  }
                  Self(Some(Arc::new(Keys {
 +                    lane: a.lane.clone().or_else(|| b.lane.clone()),
++                    part: a.part.clone().or_else(|| b.part.clone()),
                      scale: a.scale.clone().or_else(|| b.scale.clone()),
                      edo_size: a.edo_size.or(b.edo_size),
                      scale_definition: a
-@@ -104,7 +109,8 @@ impl ContextKeys {
+@@ -104,7 +112,9 @@ impl ContextKeys {
  impl Keys {
      /// Whether every key `other` has is set here, so a merge keeps these.
      fn covers(&self, other: &Self) -> bool {
 -        (self.scale.is_some() || other.scale.is_none())
-+        (self.lane.is_some() || other.lane.is_none())
++        (self.part.is_some() || other.part.is_none())
++            && (self.lane.is_some() || other.lane.is_none())
 +            && (self.scale.is_some() || other.scale.is_none())
              && (self.edo_size.is_some() || other.edo_size.is_none())
              && (self.scale_definition.is_some() || other.scale_definition.is_none())
              && (self.tags.is_some() || other.tags.is_none())
-@@ -133,6 +139,17 @@ mod tests {
+@@ -133,6 +143,17 @@ mod tests {
          assert!(empty.0.is_none(), "two empty sides share nothing");
      }
  
@@ -1025,14 +1029,26 @@ index 3a8de90b0bf10db807b43ec5c3e03eebf97da16e..8fb3a1d7701f7f4dc7c31c40aee47737
      fn an_edit_does_not_change_a_hap_that_shares_the_keys() {
          let first = with_scale("c:major");
 diff --git a/crates/core/src/lib.rs b/crates/core/src/lib.rs
-index 948b3c769847a5364eb6eed333235b997e9b616b..cdc2dce5e3b0f248caa3e2724f59cdecf071aac7 100644
+index 948b3c769847a5364eb6eed333235b997e9b616b..78b22f74666ecfa3add214ba6b0db333b528595d 100644
 --- a/crates/core/src/lib.rs
 +++ b/crates/core/src/lib.rs
-@@ -359,6 +359,17 @@ impl Hap {
+@@ -359,6 +359,29 @@ impl Hap {
          self
      }
  
 +    /// Host lane provenance, separate from score control values and JS context keys.
++    /// Name of the score's pattern binding; host metadata, never a sound control.
++    pub fn part_context(&self) -> Option<&str> {
++        self.keys.get().part.as_deref()
++    }
++
++    pub fn with_part_context(mut self, part: Arc<str>, fallback: bool) -> Self {
++        if !fallback || self.keys.get().part.is_none() {
++            self.keys.edit().part = Some(part);
++        }
++        self
++    }
++
 +    pub fn lane_context(&self) -> Option<&str> {
 +        self.keys.get().lane.as_deref()
 +    }
@@ -1046,19 +1062,25 @@ index 948b3c769847a5364eb6eed333235b997e9b616b..cdc2dce5e3b0f248caa3e2724f59cdec
      /// `hap.context.scale`, exactly as `.scale()` tagged it.
      pub fn scale_context(&self) -> Option<&str> {
          self.keys.get().scale.as_deref()
-@@ -6260,6 +6271,7 @@ impl Pattern {
+@@ -6260,6 +6283,8 @@ impl Pattern {
                                  // which the runtime prints on the onset.
                                  keys: ContextKeys::merge(
                                      &ContextKeys::of(context_keys::Keys {
 +                                        lane: None,
++                                        part: None,
                                          scale: context
                                              .and_then(|context| context.get("scale"))
                                              .and_then(|scale| match scale {
-@@ -7523,6 +7535,11 @@ impl Pattern {
+@@ -7523,6 +7548,16 @@ impl Pattern {
          Pattern::of(Node::MapHapsNative(self.clone(), Arc::new(f), spans))
      }
  
 +    /// Tag host provenance without rewriting values or dropping direct live controls.
++    /// Composition bindings fill unnamed events without hiding named children.
++    pub fn with_part_context(&self, part: Arc<str>, fallback: bool) -> Self {
++        self.map_haps_owned(move |hap| Some(hap.with_part_context(part.clone(), fallback)))
++    }
++
 +    pub fn with_lane_context(&self, lane: Arc<str>) -> Self {
 +        self.map_haps_owned(move |hap| Some(hap.with_lane_context(lane.clone())))
 +    }
@@ -1066,7 +1088,7 @@ index 948b3c769847a5364eb6eed333235b997e9b616b..cdc2dce5e3b0f248caa3e2724f59cdec
      /// Maps each hap and gives the closure ownership of it. Use this when the
      /// change can move the value or context instead of cloning them. `f`
      /// keeps the spans and reads none of them.
-@@ -9726,3 +9743,31 @@ mod stable_sort_tests {
+@@ -9726,3 +9761,31 @@ mod stable_sort_tests {
          assert_eq!(labels(&already), ["a1", "a2", "long", "b", "c"]);
      }
  }
@@ -1099,10 +1121,27 @@ index 948b3c769847a5364eb6eed333235b997e9b616b..cdc2dce5e3b0f248caa3e2724f59cdec
 +    }
 +}
 diff --git a/crates/jsruntime/src/install/repl/lanes.rs b/crates/jsruntime/src/install/repl/lanes.rs
-index 27e5522c4256835816de250750eb3de75dede787..d931dea072a6150f1c7d2b0b74e013760573c570 100644
+index 27e5522c4256835816de250750eb3de75dede787..258cf838bf522442fb8b1cb97aad802838e19f6a 100644
 --- a/crates/jsruntime/src/install/repl/lanes.rs
 +++ b/crates/jsruntime/src/install/repl/lanes.rs
-@@ -138,14 +138,18 @@ fn hush<'js>(ctx: Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
+@@ -27,6 +27,16 @@ fn state<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Array<'js>> {
+     host_stack(ctx)?.as_object().get(LANE_STATE)
+ }
+ 
++fn part<'js>(ctx: Ctx<'js>, name: String, value: rquickjs::Value<'js>, fallback: bool)
++    -> rquickjs::Result<rquickjs::Value<'js>> {
++    if rquickjs::Class::<NativePatternWrapper>::from_value(&value).is_err() {
++        return Ok(value);
++    }
++    let (pattern, sidecar) = reify_bridged(&ctx, &value)?;
++    let pattern = pattern.with_part_context(std::sync::Arc::from(name), fallback);
++    Ok(derive_wrapper(ctx, pattern, &[sidecar])?.into_value())
++}
++
+ fn all<'js>(
+     ctx: Ctx<'js>,
+     args: Rest<rquickjs::Value<'js>>,
+@@ -138,14 +148,18 @@ fn hush<'js>(ctx: Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
      state(&ctx)?.get(SILENCE)
  }
  
@@ -1123,7 +1162,7 @@ index 27e5522c4256835816de250750eb3de75dede787..d931dea072a6150f1c7d2b0b74e01376
      let pattern = pattern.fmap_keeping_live(move |value| {
          let plugin = |controls: &rustel_core::OrderedMap| {
              controls.contains_key("vst") || controls.contains_key("vsti")
-@@ -162,9 +166,14 @@ fn tagged<'js>(
+@@ -162,9 +176,14 @@ fn tagged<'js>(
          if !plugin(&controls) {
              return None;
          }
@@ -1139,6 +1178,90 @@ index 27e5522c4256835816de250750eb3de75dede787..d931dea072a6150f1c7d2b0b74e01376
      Ok(derive_wrapper(ctx.clone(), pattern, &[sidecar])?.into_value())
  }
  
+@@ -365,6 +384,7 @@ pub(super) fn install<'js>(
+         .set(LANE_STATE, state)
+         .map_err(|error| error.to_string())?;
+ 
++    globals.set("__rustel_part", Function::new(ctx.clone(), part).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+     let all = Function::new(ctx.clone(), all).map_err(|error| error.to_string())?;
+     configure_function(&all, "", 1, false).map_err(|error| error.to_string())?;
+     globals.set("all", all).map_err(|error| error.to_string())?;
+diff --git a/crates/jsruntime/src/runtime/evaluation.rs b/crates/jsruntime/src/runtime/evaluation.rs
+index f780092f3fe2e8f953beb5cd8e8959932925a15f..1ec4340313924358965feea9c8f1810145e5af25 100644
+--- a/crates/jsruntime/src/runtime/evaluation.rs
++++ b/crates/jsruntime/src/runtime/evaluation.rs
+@@ -167,6 +167,7 @@ impl JsRuntime {
+         options.add_return = false;
+         options.wrap_async = false;
+         options.allow_module_syntax = false;
++        options.emit_part_names = std::env::var("RUSTEL_MUSIC_LINK").is_ok_and(|v| v == "1");
+         options.loaded_imports = self.loaded_imports.borrow().iter().cloned().collect();
+         let output = rustel_transpiler::transpile(source, &options);
+         if !output.diagnostics.is_empty() {
+@@ -551,6 +552,7 @@ impl JsRuntime {
+         // A bare top-level `return` is only for the async function wrapper.
+         options.add_return = false;
+         options.allow_module_syntax = false;
++        options.emit_part_names = std::env::var("RUSTEL_MUSIC_LINK").is_ok_and(|v| v == "1");
+         options.loaded_imports = self.loaded_imports.borrow().iter().cloned().collect();
+         let output = rustel_transpiler::transpile(source, &options);
+         if !output.diagnostics.is_empty() {
+diff --git a/crates/jsruntime/tests/music_parts.rs b/crates/jsruntime/tests/music_parts.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..904bf14f9df6aa26ce13d8d90b88d75dd4057f48
+--- /dev/null
++++ b/crates/jsruntime/tests/music_parts.rs
+@@ -0,0 +1,50 @@
++use rustel_fraction::Fraction;
++use rustel_jsruntime::{JsRuntime, Slot};
++use rustel_transpiler::TranspileOptions;
++
++fn names(source: &str) -> Vec<String> {
++    let runtime = JsRuntime::new().unwrap();
++    runtime.install_semantic_bindings().unwrap();
++    let output = rustel_transpiler::transpile(source, &TranspileOptions {
++        emit_part_names: true, add_return: false, ..Default::default()
++    });
++    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++    // Evaluate the already instrumented score: the normal host enables this
++    // transform through RUSTEL_MUSIC_LINK, without global env mutation in tests.
++    runtime.evaluate_score(&output.output, &TranspileOptions::default()).unwrap_or_else(|e| panic!("{e}\n{}", output.output));
++    runtime.query(Slot::Active, 0, Fraction::ZERO, Fraction::ONE).unwrap()
++        .into_iter().map(|h| h.part_context().unwrap_or("").to_owned()).collect()
++}
++
++#[test]
++fn arbitrary_names_survive_stack_and_arrange_without_changing_lanes() {
++    let source = r#"
++        const moon = note("c3");
++        const cedar = note("e4");
++        const piece = arrange([1, stack(moon, cedar)], [1, cedar]);
++        $: piece
++    "#;
++    assert_eq!(names(source), ["moon", "cedar"]);
++}
++
++#[test]
++fn derived_parts_override_shared_helpers_and_composites_fill_only_unnamed_events() {
++    assert_eq!(names(r#"
++        const harmony = note("c3");
++        const rhythm = harmony.gain(0.4);
++        const drums = stack(s("bd"), s("hh"));
++        const arrangement = stack(rhythm, drums, s("rim"));
++        $: arrangement
++    "#), ["rhythm", "drums", "drums", "arrangement"]);
++}
++
++#[test]
++fn scalar_function_and_nested_declarations_keep_their_semantics() {
++    assert_eq!(names(r#"
++        const bpm = 124;
++        const make = () => { const inner = 3; return note(inner); };
++        if (make.name.length !== 4 || bpm !== 124) throw Error("changed scalar/function");
++        const aurora = make();
++        $: aurora
++    "#), ["aurora"]);
++}
 diff --git a/crates/runtime/Cargo.toml b/crates/runtime/Cargo.toml
 index 67c656b0899d493bbd6509435a13e184bde6f25a..a4e0b1257241f3bf2b85e2f64a8e1744cbdc1215 100644
 --- a/crates/runtime/Cargo.toml
@@ -1224,10 +1347,10 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..c883d338b070214b2dc6db37f016b49b3583dc43
+index 0000000000000000000000000000000000000000..863fd65b5e93d7a6b89b37962ee9ce48106dbc14
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,441 @@
 +//! Opt-in producer-side telemetry and pointwise transpose overlays.
 +//! No extra pattern queries and no socket work on the Session thread.
 +use super::*;
@@ -1386,12 +1509,24 @@ index 0000000000000000000000000000000000000000..c883d338b070214b2dc6db37f016b49b
 +        let generation = self.generation();
 +        let cycle = self.cycle_at_time(now);
 +        let cps = self.cps();
-+        let lanes = self.lanes.music_lanes();
++        let mut lanes = self.lanes.music_lanes();
 +        let source = self.active_source().unwrap_or_default().to_owned();
 +        let state = &mut self.music;
-+        state.snapshot.source = source;
++        if state.snapshot.source != source {
++            state.snapshot.bindings = rustel_transpiler::setup_definitions(&source)
++                .top_level_declarations.into_iter().filter(|d| d.kind == "const")
++                .map(|d| music_link::Binding {
++                    color: music_link::named_color(&d.name), name: d.name, from: d.from, to: d.to,
++                }).collect();
++            state.snapshot.source = source;
++        }
 +        if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
 +            state.snapshot.events.clear();
++        }
++        if state.snapshot.generation == generation {
++            for lane in &mut lanes {
++                if let Some(old) = state.snapshot.lanes.iter().find(|old| old.id == lane.id) { lane.parts = old.parts.clone(); }
++            }
 +        }
 +        state.snapshot.generation = generation;
 +        state.snapshot.cycle = cycle;
@@ -1459,11 +1594,21 @@ index 0000000000000000000000000000000000000000..c883d338b070214b2dc6db37f016b49b
 +                continue;
 +            };
 +            let offset = state.offsets.get(lane).copied().unwrap_or(0);
++            if let Some(part) = observation.part.as_deref().filter(|name| !name.is_empty()) {
++                if let Some(parent) = state.snapshot.lanes.iter_mut().find(|l| l.id == lane) {
++                    if parent.parts.len() < 64 && !parent.parts.iter().any(|p| p.name == part) {
++                        parent.parts.push(music_link::NamedPart { name: part.to_owned(), color: music_link::named_color(part) });
++                        parent.parts.sort_by_key(|p| state.snapshot.bindings.iter().position(|b| b.name == p.name).unwrap_or(usize::MAX));
++                    }
++                }
++            }
 +            let original = transpose(&mut event.value, offset);
 +            let Some(controls) = controls(&event.value) else {
 +                continue;
 +            };
 +            state.snapshot.events.push(Event {
++                part_color: music_link::named_color(observation.part.as_deref().unwrap_or_default()),
++                part: observation.part.as_deref().unwrap_or_default().to_owned(),
 +                context: observation.context.clone(),
 +                controls: ["gain", "pan", "cutoff", "resonance"]
 +                    .into_iter()
@@ -1670,22 +1815,23 @@ index 7fccbdaac078ced6a782c9b6658985c9f8167ab9..ee11a6f14c1c61bf038932062f94b6e1
              .into_iter()
              .map(|event| OnsetEventJson {
 diff --git a/crates/runtime/src/ui_events.rs b/crates/runtime/src/ui_events.rs
-index ce2c210447c5758f25d736be69f1c2ec7a63e1e5..5f42e84c3895b78eec20849b51a849e0b15a7b33 100644
+index ce2c210447c5758f25d736be69f1c2ec7a63e1e5..8a744c718db91abe25b4d9462ad58441d76d346c 100644
 --- a/crates/runtime/src/ui_events.rs
 +++ b/crates/runtime/src/ui_events.rs
-@@ -2259,6 +2259,7 @@ mod tests {
+@@ -2259,6 +2259,8 @@ mod tests {
  
      fn trace() -> ScheduleTraceEvent {
          ScheduleTraceEvent {
 +            lane: None,
++            part: None,
              onset_id: 9,
              generation: 3,
              whole_begin: Fraction::new(1, 3),
 diff --git a/crates/runtime/src/vst/lanes.rs b/crates/runtime/src/vst/lanes.rs
-index 5373be754eb502ebebad38fecc835cd0ac285374..4413d8b8417ba535a7e27771d36de937e6ffe3bd 100644
+index 5373be754eb502ebebad38fecc835cd0ac285374..03bc78ce859e9eae27ff038afc98c1db5f6f6135 100644
 --- a/crates/runtime/src/vst/lanes.rs
 +++ b/crates/runtime/src/vst/lanes.rs
-@@ -152,6 +152,24 @@ pub(crate) struct LaneTable {
+@@ -152,6 +152,25 @@ pub(crate) struct LaneTable {
  }
  
  impl LaneTable {
@@ -1695,6 +1841,7 @@ index 5373be754eb502ebebad38fecc835cd0ac285374..4413d8b8417ba535a7e27771d36de937
 +            .lanes
 +            .iter()
 +            .map(|lane| music_link::Lane {
++                parts: Vec::new(),
 +                id: format!("#{}", lane.number),
 +                label: lane.label.clone(),
 +                source: if lane.label.is_empty() {
@@ -1765,7 +1912,7 @@ index 0000000000000000000000000000000000000000..a01b62465d075303732f527c3e6bdc8a
 +    }).expect("worker").join().expect("test worker");
 +}
 diff --git a/crates/scheduler/src/lib.rs b/crates/scheduler/src/lib.rs
-index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a401643c560 100644
+index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..65306d38f4248e4e9b7f3916d7f0570fc7dd0fd5 100644
 --- a/crates/scheduler/src/lib.rs
 +++ b/crates/scheduler/src/lib.rs
 @@ -36,6 +36,8 @@ pub type Generation = u64;
@@ -1777,24 +1924,26 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
      /// Unique for the scheduler's lifetime. Duplicate delivery is detectable.
      pub onset_id: u64,
      pub generation: Generation,
-@@ -76,6 +78,8 @@ pub struct Event {
+@@ -76,6 +78,9 @@ pub struct Event {
  /// locations use the same byte-offset pairs carried by [`Hap::context`].
  #[derive(Clone, Debug, PartialEq)]
  pub struct ScheduleTraceEvent {
 +    /// Host provenance; absent for untagged patterns.
 +    pub lane: Option<Arc<str>>,
++    pub part: Option<Arc<str>>,
      pub onset_id: u64,
      pub generation: Generation,
      pub whole_begin: Fraction,
-@@ -238,6 +242,7 @@ impl ScheduleTraceEvent {
+@@ -238,6 +243,8 @@ impl ScheduleTraceEvent {
          let whole = hap.whole?;
          let value_show = hap.value.show();
          Some(Self {
 +            lane: hap.lane_context().map(Arc::from),
++            part: hap.part_context().map(Arc::from),
              onset_id,
              generation,
              whole_begin: whole.begin,
-@@ -574,6 +579,7 @@ pub struct Scheduler {
+@@ -574,6 +581,7 @@ pub struct Scheduler {
      last_fill_time: f64,
      /// Optional observation channel for editor highlighting and visualizers.
      /// The disabled hot path is a single false branch after queue acceptance.
@@ -1802,7 +1951,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
      trace_enabled: bool,
      trace_events: Vec<ScheduleTraceEvent>,
      trace_events_dropped: u64,
-@@ -751,6 +757,7 @@ impl Scheduler {
+@@ -751,6 +759,7 @@ impl Scheduler {
              pass_ordinals: std::collections::HashMap::new(),
              stale_limit: 1.0,
              last_fill_time: 0.0,
@@ -1810,7 +1959,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
              trace_enabled: false,
              trace_events: Vec::new(),
              trace_events_dropped: 0,
-@@ -785,6 +792,12 @@ impl Scheduler {
+@@ -785,6 +794,12 @@ impl Scheduler {
          self.trace_enabled
      }
  
@@ -1823,7 +1972,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
      /// Take all unread trace events in scheduler acceptance order.
      ///
      /// A stopped transport has no live schedule, so stale observations are
-@@ -2167,7 +2180,9 @@ impl Scheduler {
+@@ -2167,7 +2182,9 @@ impl Scheduler {
              // Trace reads the complete hap, so capture it before transferring
              // the already-owned value into the scheduler event. A full or
              // disabled trace queue keeps the same short-circuit behavior.
@@ -1834,7 +1983,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
                  ScheduleTraceEvent::from_hap(&hap, generation, onset_id, target_time)
              } else {
                  None
-@@ -2175,6 +2190,11 @@ impl Scheduler {
+@@ -2175,6 +2192,11 @@ impl Scheduler {
              let ui_visuals = hap.ui_visuals_context();
              let log_line = hap.log_line().map(std::sync::Arc::from);
              self.queue.push(Event {
@@ -1846,7 +1995,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
                  onset_id,
                  generation,
                  whole_begin: whole.begin,
-@@ -2196,7 +2216,9 @@ impl Scheduler {
+@@ -2196,7 +2218,9 @@ impl Scheduler {
              // these IDs with its downstream audio-ring pushes before exposing
              // them as device-submitted UI events.
              if self.trace_enabled {
@@ -1857,7 +2006,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
                      self.trace_events.push(trace);
                  } else {
                      self.trace_events_dropped = self.trace_events_dropped.saturating_add(1);
-@@ -2542,6 +2564,34 @@ mod tests {
+@@ -2542,6 +2566,36 @@ mod tests {
          assert!(scheduler.queued() > 0, "tracing changed audio scheduling");
      }
  
@@ -1872,6 +2021,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
 +            scheduler.set_pattern(
 +                atom("bd")
 +                    .with_lane_context(Arc::from("#2"))
++                    .with_part_context(Arc::from("cedar"), false)
 +                    .map_haps_native(|hap| Some(hap.clone().with_context(vec![(4, 8), (13, 21)]))),
 +                clock.now(),
 +            );
@@ -1883,6 +2033,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
 +            assert_eq!(traces.len(), 1);
 +            assert_eq!(traces[0].context, vec![(4, 8), (13, 21)]);
 +            assert_eq!(traces[0].lane.as_deref(), Some("#2"));
++            assert_eq!(traces[0].part.as_deref(), Some("cedar"));
 +            if let Some(telemetry) = &events[0].telemetry {
 +                assert_eq!(**telemetry, traces[0]);
 +            }
@@ -1892,15 +2043,16 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
      #[test]
      fn schedule_trace_copies_exact_accepted_hap_data() {
          let transport = Arc::new(Transport::default());
-@@ -2560,6 +2610,7 @@ mod tests {
+@@ -2560,6 +2614,8 @@ mod tests {
          assert_eq!(
              traces[0],
              ScheduleTraceEvent {
 +                lane: None,
++                part: None,
                  onset_id: 0,
                  generation,
                  whole_begin: Fraction::ZERO,
-@@ -2633,6 +2684,7 @@ mod tests {
+@@ -2633,6 +2689,7 @@ mod tests {
                  value: Value::Str("late".into()),
                  live_controls: [0; 4],
                  ui_visuals: 0,
@@ -1908,7 +2060,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
                  log_line: None,
              },
              Event {
-@@ -2646,6 +2698,7 @@ mod tests {
+@@ -2646,6 +2703,7 @@ mod tests {
                  value: Value::Str("early".into()),
                  live_controls: [0; 4],
                  ui_visuals: 0,
@@ -1916,7 +2068,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
                  log_line: None,
              },
          ]);
-@@ -2669,6 +2722,7 @@ mod tests {
+@@ -2669,6 +2727,7 @@ mod tests {
              value: Value::Str("nan".into()),
              live_controls: [0; 4],
              ui_visuals: 0,
@@ -1924,7 +2076,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
              log_line: None,
          });
          synthetic.sort_by(|a, b| a.target_time.total_cmp(&b.target_time));
-@@ -2724,6 +2778,7 @@ mod tests {
+@@ -2724,6 +2783,7 @@ mod tests {
              ]),
              live_controls: [0; 4],
              ui_visuals: 0,
@@ -1932,7 +2084,7 @@ index 63f4675466c5e1fcbe0547fc10690fb8ae41234a..87eae58f65bbf34b7658c454af7a7a40
              log_line: None,
          };
          scheduler.queue.extend([
-@@ -2788,6 +2843,7 @@ mod tests {
+@@ -2788,6 +2848,7 @@ mod tests {
          let mut scheduler = Scheduler::new(transport, 1.0, 0.5);
          let clock = VirtualClock::new(0.0);
          scheduler.set_trace_enabled(true);
@@ -1965,3 +2117,78 @@ index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf
          // The audition tap is always armed: a preview can sound the moment
          // the browser asks, whatever the score's own visuals are doing. The
          // score's own taps follow the audible layout: the reset below records
+diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
+index d95e54846f2a0774f878351c3a52b33ae1f43b9e..a2cd054f8d429a4ce98aa4bf22858f1cc1ba6811 100644
+--- a/crates/transpiler/src/lib.rs
++++ b/crates/transpiler/src/lib.rs
+@@ -980,6 +980,8 @@ pub struct TranspileOptions {
+     pub wrap_async: bool,
+     pub add_return: bool,
+     pub emit_mini_locations: bool,
++    /// Host-only pattern binding provenance, opt-in for the music bridge.
++    pub emit_part_names: bool,
+     pub block_offset: usize,
+     pub registered_languages: Vec<String>,
+     pub widget_methods: Vec<String>,
+@@ -1008,6 +1010,7 @@ impl Default for TranspileOptions {
+             wrap_async: false,
+             add_return: true,
+             emit_mini_locations: true,
++            emit_part_names: false,
+             block_offset: 0,
+             registered_languages: Vec::new(),
+             widget_methods: Vec::new(),
+@@ -2520,6 +2523,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
+     output
+ }
+ 
++/// Wrap top-level identifier const initializers using AST spans. Scalars, functions,
++/// objects and promises pass unchanged through the host helper. No names are guessed
++/// from strings/comments, and nested/destructured declarations are left alone.
++fn rewrite_pattern_bindings(source: &str) -> String {
++    let allocator = Allocator::default();
++    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
++    if parsed.panicked || !parsed.diagnostics.is_empty() { return source.to_owned(); }
++    let composites = running_calls(source, &["stack", "arrange"]);
++    let mut inserts = Vec::new();
++    for statement in &parsed.program.body {
++        let Statement::VariableDeclaration(declaration) = statement else { continue };
++        if declaration.kind != VariableDeclarationKind::Const { continue; }
++        for binding in &declaration.declarations {
++            let (BindingPattern::BindingIdentifier(name), Some(init)) = (&binding.id, &binding.init) else { continue };
++            // Preserve JS inferred names and scalar/object identity semantics.
++            if matches!(init, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
++                | Expression::ClassExpression(_) | Expression::ObjectExpression(_) | Expression::ArrayExpression(_)) { continue; }
++            let span = init.span();
++            let from = span.start as usize;
++            let to = span.end as usize;
++            let fallback = composites.iter().any(|(_, range)| range.start >= from && range.end <= to);
++            inserts.push((from, format!("__rustel_part(\"{}\", (", name.name.as_str())));
++            inserts.push((to, format!("), {fallback})")));
++        }
++    }
++    let mut output = source.to_owned();
++    inserts.sort_by_key(|(at, _)| *at);
++    for (at, text) in inserts.into_iter().rev() { output.insert_str(at, &text); }
++    output
++}
++
+ /// The body of `transpile`, always called on a parse stack.
+ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
+     let regexes = RegexLiteralRanges::parse(source);
+@@ -2562,6 +2596,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
+     let (labels, lanes_by_place) =
+         rewrite_labels(&kabel, regexes_are_present, &options.lane_numbers);
+     let samples = rewrite_bare_samples(&labels);
++    let samples = if options.emit_part_names { rewrite_pattern_bindings(&samples) } else { samples };
+     let mut parsed = parse_and_print_as(&samples, SourceType::mjs(), ModuleSyntax::of(options));
+     // The parser read the rewritten text; the score is what the reader sees.
+     for diagnostic in &mut parsed.diagnostics {
+@@ -6026,6 +6061,7 @@ mod tests {
+         assert_eq!(transpile(r"fo\u{6f}`a b`", &options).output, "foo`a b`;");
+         let located = TranspileOptions {
+             emit_mini_locations: true,
++            emit_part_names: false,
+             ..options
+         };
+         assert_eq!(

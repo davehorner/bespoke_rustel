@@ -112,7 +112,7 @@ pub fn MusicCanvas(state: ViewerState) -> impl IntoView {
                 );
                 return;
             }
-            let Some(mut snapshot) = state.music.get_untracked() else {
+            let Some(snapshot) = state.music.get_untracked() else {
                 label(&context, "Waiting for Rustel", 32.0, top + 20.0, "#91a8bd");
                 return;
             };
@@ -128,10 +128,7 @@ pub fn MusicCanvas(state: ViewerState) -> impl IntoView {
                 return;
             }
             let lane = state.music_lane.get_untracked();
-            if !lane.is_empty() {
-                snapshot.lanes.retain(|l| l.id == lane);
-                snapshot.events.retain(|e| e.lane == lane);
-            }
+            let snapshot = snapshot.visual_lanes(&state.music_expanded.get_untracked(), &lane);
             let cycle = snapshot.cycle + age * snapshot.cps;
             draw_events(
                 &context,
@@ -182,6 +179,11 @@ pub fn MusicCanvas(state: ViewerState) -> impl IntoView {
 fn color(c: &Context, value: &str) {
     c.set_fill_style_str(value);
     c.set_stroke_style_str(value);
+}
+fn event_color(event: &music_link::Event, fallback: &str) -> String {
+    if event.part.is_empty() { return fallback.to_owned(); }
+    let [r,g,b] = event.part_color;
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 fn label(c: &Context, text: &str, x: f64, y: f64, value: &str) {
     color(c, value);
@@ -253,7 +255,7 @@ fn draw_events(
                 y + 16.0,
                 "#91a8bd",
             );
-            for (lane_index, lane) in s.lanes.iter().take(64).enumerate() {
+            for (lane_index, lane) in s.lanes.iter().take(320).enumerate() {
                 let mut events: Vec<_> = s
                     .events
                     .iter()
@@ -294,17 +296,23 @@ fn draw_events(
             let x = x_at(((cycle * 4.0).floor() + beat as f64) / 4.0);
             line(c, (x, top), (x, bottom));
         }
-        if mode == 1 {
-            for note in (24..=96).step_by(12) {
-                let y = bottom - (note as f64 - 24.0) / 72.0 * (bottom - top) + pan.1;
-                line(c, (20.0, y), (w - 20.0, y));
-                label(c, &format!("C{}", note / 12 - 1), 24.0, y - 3.0, "#718ba5");
-            }
-        }
         color(c, "#d7eaff");
         line(c, (x_at(cycle), top), (x_at(cycle), bottom));
     }
-    for (lane_index, lane) in s.lanes.iter().take(64).enumerate() {
+    for (lane_index, lane) in s.lanes.iter().take(320).enumerate() {
+        let row_height = ((bottom-top) / s.lanes.len().max(1) as f64).max(64.0) * zoom;
+        if mode == 1 {
+            label(c, &lane.label, 24.0, top + lane_index as f64 * row_height + pan.1 + 12.0, "#b2c9df");
+            for note in (24..=96).step_by(12) {
+                let y = top + (lane_index+1) as f64 * row_height - (note as f64-24.0)/72.0 * (row_height-18.0).max(1.0) + pan.1;
+                color(c, "#1b2b40"); line(c, (20.0,y), (w-20.0,y));
+            }
+            color(c, "#26394d");
+            line(c, (20.0, top + lane_index as f64 * row_height + pan.1), (w-20.0, top + lane_index as f64 * row_height + pan.1));
+        } else if mode == 2 {
+            let column = ((w-90.0) / s.lanes.len().max(1) as f64).max(150.0);
+            label(c, &lane.label, 45.0 + lane_index as f64 * column + pan.0, top+14.0, "#b2c9df");
+        }
         for event in s
             .events
             .iter()
@@ -318,26 +326,33 @@ fn draw_events(
                 continue;
             }
             let active = event.cycle <= cycle && event.cycle + event.duration > cycle;
-            color(c, COLORS[lane_index % 8]);
+            let tint = event_color(event, COLORS[lane_index % 8]);
+            color(c, &tint);
             c.set_global_alpha(if active { 1.0 } else { 0.55 });
             if mode == 1 {
-                let y = bottom - (pitch - 24.0) / 72.0 * (bottom - top) + pan.1;
+                let y = top + (lane_index + 1) as f64 * row_height - (pitch - 24.0) / 72.0 * (row_height-18.0).max(1.0) + pan.1;
                 let length = (event.duration / span * (w - 120.0)).clamp(3.0, w);
                 if ghosts {
                     if let Some(original) = event.original_pitch.filter(|p| p.is_finite()) {
                         c.set_global_alpha(0.25);
                         c.fill_rect(
                             x_at(event.cycle),
-                            bottom - (original - 24.0) / 72.0 * (bottom - top) + pan.1 - 1.0,
+                            top + (lane_index + 1) as f64 * row_height - (original - 24.0) / 72.0 * (row_height-18.0).max(1.0) + pan.1 - 1.0,
                             length,
                             2.0,
                         );
                         c.set_global_alpha(if active { 1.0 } else { 0.55 });
                     }
                 }
-                c.fill_rect(x_at(event.cycle), y - 4.0, length, 8.0);
+                let height = if event.part.is_empty() { 8.0 } else { 14.0 };
+                c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
+                if !event.part.is_empty() {
+                    c.save();
+                    label(c, &event.part, x_at(event.cycle) + 2.0, y - 9.0, &tint);
+                    c.restore();
+                }
             } else if mode == 2 {
-                let column = (w - 90.0) / s.lanes.len().max(1) as f64;
+                let column = ((w - 90.0) / s.lanes.len().max(1) as f64).max(150.0);
                 let x = 45.0 + lane_index as f64 * column + pan.0;
                 let y = bottom - (event.cycle - cycle + 0.5) * 120.0 * zoom + pan.1;
                 let sound = if event.sound.is_empty() {
@@ -345,7 +360,7 @@ fn draw_events(
                 } else {
                     &event.sound
                 };
-                let _ = c.fill_text(&format!("{} {:.0}", sound, pitch), x, y);
+                let _ = c.fill_text(&format!("{} {} {:.0}", event.part, sound, pitch), x, y);
             }
         }
     }
@@ -481,7 +496,8 @@ fn draw_radial(
             if !pitch.is_finite() {
                 continue;
             }
-            color(c, COLORS[lane % 8]);
+            let tint = event_color(event, COLORS[lane % 8]);
+            color(c, &tint);
             c.set_global_alpha(if source {
                 65.0 / 255.0
             } else if sounding {
@@ -490,6 +506,9 @@ fn draw_radial(
                 150.0 / 255.0
             });
             let p = point(event.cycle, pitch);
+            if !source && !event.part.is_empty() {
+                label(c, &event.part, p.0 + 6.0, p.1 - 6.0, &tint);
+            }
             if mode == 3 {
                 c.set_line_width(if source { 0.7 } else { 2.0 });
                 c.begin_path();

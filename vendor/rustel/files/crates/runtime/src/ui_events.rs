@@ -2260,6 +2260,7 @@ mod tests {
     fn trace() -> ScheduleTraceEvent {
         ScheduleTraceEvent {
             lane: None,
+            part: None,
             onset_id: 9,
             generation: 3,
             whole_begin: Fraction::new(1, 3),

@@ -6,6 +6,69 @@ pub const COMMAND_TOPIC: &str = "music/command";
 pub const RESPONSE_TOPIC: &str = "music/response";
 pub const AUDIO_TOPIC: &str = "music/audio";
 
+/// Stable UTF-8 name hash → bright hue. No dependency on declaration/lane order.
+/// RGB travels with the event so every client uses exactly the same color.
+pub fn named_color(name: &str) -> [u8; 3] {
+    let hash = name.bytes().fold(2166136261_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
+    let hue = hash % 1536;
+    let ramp = (hue % 256) as u8;
+    let rgb = match hue / 256 {
+        0 => [255, ramp, 0], 1 => [255 - ramp, 255, 0],
+        2 => [0, 255, ramp], 3 => [0, 255 - ramp, 255],
+        4 => [ramp, 0, 255], _ => [255, 0, 255 - ramp],
+    };
+    rgb.map(|v| 64 + (u16::from(v) * 180 / 255) as u8)
+}
+
+#[cfg(test)]
+mod named_part_tests {
+    use super::*;
+
+    #[test]
+    fn names_have_stable_bounded_colors_and_old_events_still_decode() {
+        assert_eq!(named_color("bass"), named_color("bass"));
+        assert_ne!(named_color("bass"), named_color("rhythm"));
+        assert_ne!(named_color("écho"), named_color("echo"));
+        for channel in named_color("any_user_name") { assert!((64..=244).contains(&channel)); }
+        let event: Event = serde_json::from_str(r##"{
+            "id":1,"lane":"#0","cycle":0,"duration":1,"original_pitch":60,
+            "pitch":60,"sound":"sine","gain":0.5
+        }"##).unwrap();
+        assert!(event.part.is_empty());
+    }
+
+    #[test]
+    fn expanding_one_parent_scopes_shared_parts_and_never_duplicates_events() {
+        let part = NamedPart { name: "moon".into(), color: named_color("moon") };
+        let lane = |id: &str| Lane { id: id.into(), source: "$: arrangement".into(), parts: vec![part.clone()], ..Default::default() };
+        let event = |lane: &str, part: &str, id| Event { lane: lane.into(), part: part.into(), id,
+            part_color: named_color(part), cycle: 0.0, duration: 1.0, original_pitch: None,
+            pitch: None, sound: "bd".into(), gain: 1.0, context: vec![], controls: Default::default() };
+        let source = Snapshot { lanes: vec![lane("#1"), lane("#2")],
+            events: vec![event("#1", "moon", 1), event("#2", "moon", 2), event("#1", "", 3)], ..Default::default() };
+        let view = source.visual_lanes(&["#1".into()], "");
+        assert_eq!(view.lanes.len(), 3);
+        assert!(view.lanes[0].label.contains("arrangement"));
+        assert_eq!(view.events.len(), source.events.len());
+        assert_eq!(view.events[0].lane, view.lanes[1].id);
+        assert_eq!(view.events[1].lane, "#2");
+        assert_eq!(view.events[2].lane, "#1");
+        let both = source.visual_lanes(&["#1".into(), "#2".into()], "");
+        assert_ne!(both.events[0].lane, both.events[1].lane);
+        let selected = source.visual_lanes(&["#1".into()], "#1");
+        assert_eq!(selected.lanes.len(), 2);
+        assert_eq!(selected.events.len(), 2);
+        assert_eq!(source.lanes.len(), 2, "projection leaves control targets untouched");
+    }
+
+    #[test]
+    fn core_expression_keeps_sample_colons_and_multiline_expression() {
+        let lane = |source: &str| Lane { source: source.into(), ..Default::default() };
+        assert_eq!(lane("s(\"bd:1\")").display_name(), "s(\"bd:1\")");
+        assert_eq!(lane("$: \n arrangement.slow(2);").display_name(), "arrangement.slow(2)");
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AudioFrame {
     pub version: u32,
@@ -49,10 +112,37 @@ pub struct Lane {
     pub source: String,
     pub line: usize,
     pub transpose: i32,
+    #[serde(default)]
+    pub parts: Vec<NamedPart>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct NamedPart {
+    pub name: String,
+    pub color: [u8; 3],
+}
+
+impl Lane {
+    pub fn display_name(&self) -> String {
+        let source = self.source.trim();
+        let body = source.split_once(':').filter(|(label, _)| !label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
+            .map_or(source, |(_, body)| body.trim());
+        let first = body.lines().next().unwrap_or("").trim().trim_end_matches(';');
+        if first.is_empty() { self.label.clone() } else { first.chars().take(96).collect() }
+    }
+}
+
+fn virtual_id(parent: &str, part: &str) -> String {
+    format!("~{}:{parent}{part}", parent.len())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
+    /// Top-level const pattern binding, retained through composition.
+    #[serde(default)]
+    pub part: String,
+    #[serde(default)]
+    pub part_color: [u8; 3],
     #[serde(default)]
     pub context: Vec<(usize, usize)>,
     #[serde(default)]
@@ -75,7 +165,17 @@ pub struct LaneAudioStream {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Binding {
+    pub name: String,
+    pub color: [u8; 3],
+    pub from: usize,
+    pub to: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub bindings: Vec<Binding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lane_audio: Option<LaneAudioStream>,
     #[serde(default)]
@@ -90,6 +190,37 @@ pub struct Snapshot {
     pub cps: f64,
     pub lanes: Vec<Lane>,
     pub events: Vec<Event>,
+}
+
+impl Snapshot {
+    /// A visual-only projection. Commands always use the original snapshot IDs.
+    /// Parent rows hold unnamed events when expanded; each named child appears
+    /// exactly once. Length-prefixed IDs scope identical names to their parents.
+    pub fn visual_lanes(&self, expanded: &[String], selected: &str) -> Self {
+        let mut output = self.clone();
+        output.lanes.clear();
+        let mut destinations = std::collections::BTreeMap::new();
+        for lane in self.lanes.iter().filter(|l| selected.is_empty() || l.id == selected).take(64) {
+            let mut core = lane.clone();
+            let open = expanded.contains(&lane.id) && !lane.parts.is_empty();
+            core.label = format!("{} {} / {}", if lane.parts.is_empty() { "·" } else if open { "−" } else { "+" }, lane.id, lane.display_name());
+            output.lanes.push(core);
+            if open {
+                for part in lane.parts.iter().take(64) {
+                    if output.lanes.len() >= 256 { break; }
+                    let id = virtual_id(&lane.id, &part.name);
+                    destinations.insert((lane.id.clone(), part.name.clone()), id.clone());
+                    output.lanes.push(Lane { id, label: format!("  ↳ {}", part.name), source: part.name.clone(), ..Default::default() });
+                }
+            }
+        }
+        output.events.retain_mut(|event| {
+            if !selected.is_empty() && event.lane != selected { return false; }
+            if let Some(id) = destinations.get(&(event.lane.clone(), event.part.clone())) { event.lane = id.clone(); }
+            true
+        });
+        output
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
