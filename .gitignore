@@ -12,6 +12,10 @@
 /music-link/launcher-state.json
 /music-link/launcher-state.json.tmp
 /music-link/launcher.lock
+/music-link/launcher-posix.json
+/music-link/launcher-posix.json.tmp
+/music-link/launcher-posix.lock
+/music-link/native-view-prefs-posix.json
 /music-link/native-view-prefs.json
 /music-link/contribution/runtime/
 /music-link/upstream-contribution.zip

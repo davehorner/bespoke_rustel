@@ -50,7 +50,7 @@ impl LiveStop {
 impl LiveShared {
     pub(super) fn new(initial_generation: u64) -> Self {
         Self {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             lane_audio: crate::lane_audio::LaneAudioMap::from_environment(),
             ring: Arc::new(Ring::new(LIVE_RING_CAPACITY)),
             immediate: Arc::new(Ring::new(64)),
@@ -762,7 +762,7 @@ impl LiveAnalysisTap {
 
 impl LiveScalarDevice {
     /// The producer advertises only successfully created exports.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     pub fn lane_audio_mapping(&self) -> Option<&str> {
         self.shared.lane_audio.as_ref().map(|map| map.name())
     }

@@ -9,7 +9,7 @@
       "files": [
         {
           "path": "Source/CMakeLists.txt",
-          "sha256": "f95c9663f9edf57679efaba07fccb089549ebac9b3018f657e4bb51be21c234a"
+          "sha256": "ddd805314aecf44032f913379b1b161d650a4946e7aa4654261e470dc830833e"
         },
         {
           "path": "Source/ModuleFactory.cpp",
@@ -17,11 +17,15 @@
         },
         {
           "path": "Source/RustelAudio.cpp",
-          "sha256": "43b8ad8f055d371209411d660e5043d5c268489f1719405d8f652d1c103721ef"
+          "sha256": "4cca72f59fe32ab13ba5feb5cdd333988eb848742786d4a2049fb681965963e5"
         },
         {
           "path": "Source/RustelAudio.h",
           "sha256": "c3009aa5895fb43cd9bb22fe5aa5f486078a1b328ad8222c1847d021585e96b1"
+        },
+        {
+          "path": "Source/RustelAudioShared.h",
+          "sha256": "7f3a023603bd2e092a87b42a9a4d42cf3cfa3615c51000e21e83d4107216c840"
         },
         {
           "path": "Source/RustelLink.h",
@@ -52,8 +56,8 @@
           "sha256": "6150d12b7cfa502fb2ee3ba082cd9617f4ba522cb8f64eda42cbbf956f45554e"
         }
       ],
-      "patch_sha256": "c43ef9469896e0f030567047b9f55824923772755e8097c37ee3288de16ed1ce",
-      "result_tree": "385fec2678d8124a96f87ef2958402b8bf26cfe4"
+      "patch_sha256": "8bfedd9920d266ddb22f83d70e85efeac80b1400728c782b6f487b57c5b65f43",
+      "result_tree": "fc60fb965205fe859c36cb4064a5382bf8e64c15"
     },
     {
       "name": "rustel",
@@ -71,31 +75,31 @@
         },
         {
           "path": "crates/audio/src/device.rs",
-          "sha256": "ac6e22ac914bbc6a834c03c332e921c9e939abeba8922d56b99d1e514b7198a4"
+          "sha256": "ab2fe7eb82c7815d5b1524cf634d3c57ab0148ced4f7ce1a65127206aa64a401"
         },
         {
           "path": "crates/audio/src/device/callback.rs",
-          "sha256": "dbe749bcc0bdb117da8d7e68cde67209321e62a0ec510378f4c75071966cb226"
+          "sha256": "3954b02690cd359fa8c108bbb8c0e47e1aff5df236f7615a8249f027ba2dded7"
         },
         {
           "path": "crates/audio/src/device/control.rs",
-          "sha256": "30f889f392c07a1fd8fb7a023a16ff0444a3074cbb5923b0306e2897fcc7a6bd"
+          "sha256": "114111c3de7c7056944a6e1c525d244f1a2ae0008df424e443703076b167d599"
         },
         {
           "path": "crates/audio/src/device/stream.rs",
-          "sha256": "b3f6bf0cc49a048ac6e6decf07e6cb5d2b37c35e12c0c8ce4c60e8b44b7b4446"
+          "sha256": "38752831280c464ffa0eb91075e08388aa4157a4f15a04c074654b32caf3c7db"
         },
         {
           "path": "crates/audio/src/lane_audio.rs",
-          "sha256": "60dfa0561e26d62a607f6738c762b3b3c5de960c4bf6385f3302c709f09b4d34"
+          "sha256": "7188ebc4d9504e5e6bec5b9a7c4fa1d17b734682cb4b9af2562d3aee062490e5"
         },
         {
           "path": "crates/audio/src/lib.rs",
-          "sha256": "a78c20c638e1e4443133b651ae42e5dbcc2210dbd10548cc13744e9735902a18"
+          "sha256": "d85b7ca65397dd4793786401b22b616108e4fce57b28cc303ac13bd3051b2f83"
         },
         {
           "path": "crates/audio/src/live.rs",
-          "sha256": "1385d92d2cfdfd49bee1d813d4fdb0d336ac4e3405056bc1c26338e283337f76"
+          "sha256": "0634697d331e2ae1102bb7fdb76e765c86f867b866791f26624c21cebf700164"
         },
         {
           "path": "crates/cli/Cargo.toml",
@@ -131,7 +135,7 @@
         },
         {
           "path": "crates/runtime/src/session/music.rs",
-          "sha256": "753eaca2ecdd395f983e02410d22f0db12140a8c7972874c7a3b3a314cdaa525"
+          "sha256": "53957fa36c925ccc6ffa9793ccc4eadbbb43dca0cadaa2a63784a62ebe7b5422"
         },
         {
           "path": "crates/runtime/src/session/scheduling.rs",
@@ -162,8 +166,8 @@
           "sha256": "778ef3a33b833a161c5811e71a1bfd3266a7bd9fe125a069c01bd3afdc36d6bd"
         }
       ],
-      "patch_sha256": "145dfb78d95717395c0eba5bf61a71655a84d88bcae5efe178fd2feb0a6b04a0",
-      "result_tree": "f09b43dca3d4fcf7688144dac5c2df9b36466fda"
+      "patch_sha256": "3c983465c19d94fc5ce80e5d4f15172578c3f8882b05db3d7cd43a10c3a2b34e",
+      "result_tree": "f8d13c5560a7e64547649db64eee2c2932bcea59"
     },
     {
       "name": "nightshade-viewer",

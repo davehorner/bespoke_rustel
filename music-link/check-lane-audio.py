@@ -1,6 +1,5 @@
-"""Hardware-free Windows producer/IPC check. Stops only processes it creates."""
+"""Hardware-free native producer/IPC check. Stops only processes it creates."""
 import json
-import mmap
 import os
 from pathlib import Path
 import struct
@@ -9,6 +8,7 @@ import tempfile
 import time
 import urllib.request
 import sys
+from native_ipc import open_mapping, unlink_stopped_mapping
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = "http://127.0.0.1:9614/sessions"
@@ -36,8 +36,9 @@ def wait_for(check, seconds=12):
 
 
 def main():
-    assert os.name == "nt", "Windows shared memory is required"
     owned = []
+    exported_mapping = None
+    producer_pid = None
     logs = ROOT / "music-link/logs"
     logs.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="lane-audio-", dir=logs) as temporary:
@@ -45,30 +46,35 @@ def main():
         score.write_text(FIRST + SECOND, encoding="utf-8")
         with (logs / "lane-audio-check.log").open("w", encoding="utf-8") as log:
             def launch(args, env=None, cwd=ROOT):
-                startup = subprocess.STARTUPINFO()
-                startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startup.wShowWindow = 0
-                process = subprocess.Popen(args, cwd=cwd, env=env, stdout=log,
-                                           stderr=log, creationflags=subprocess.CREATE_NO_WINDOW,
-                                           startupinfo=startup)
+                options = {}
+                if os.name == "nt":
+                    startup = subprocess.STARTUPINFO()
+                    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startup.wShowWindow = 0
+                    options = {"creationflags": subprocess.CREATE_NO_WINDOW, "startupinfo": startup}
+                else:
+                    options = {"start_new_session": True}
+                process = subprocess.Popen(args, cwd=cwd, env=env, stdout=log, stderr=log, **options)
                 owned.append(process)
                 return process
             try:
                 try:
                     sessions()
                 except OSError:
-                    launch([str(ROOT / "music-link/target/debug/music-hub.exe")])
+                    launch([str(ROOT / ("music-link/target/debug/music-hub.exe" if os.name == "nt" else "music-link/target/debug/music-hub"))])
                     wait_for(lambda: sessions() is not None)
                 env = dict(os.environ, RUSTEL_MUSIC_LINK="1", RUSTEL_LANE_AUDIO="1")
-                process = launch([str(ROOT / "rustel/target/debug/rustel.exe"), "play", str(score),
+                process = launch([str(ROOT / ("rustel/target/debug/rustel.exe" if os.name == "nt" else "rustel/target/debug/rustel")), "play", str(score),
                                   "--watch", "--no-update-check", "--no-input", "--output", "silent"], env)
                 def current():
                     return next((s for s in sessions() if s["session"].startswith(f"rustel-{process.pid}-")), None)
                 snapshot = wait_for(lambda: (s := current()) and s.get("lane_audio") and len(s["lane_audio"]["lanes"]) == 2 and s)
+                producer_pid = process.pid
                 stream = snapshot["lane_audio"]
+                exported_mapping = stream["mapping"]
                 slots = stream["lanes"]
                 assert len(set(slots.values())) == 2
-                with mmap.mmap(-1, SIZE, tagname=stream["mapping"]) as memory:
+                with open_mapping(stream["mapping"]) as memory:
                     assert struct.unpack_from("<II", memory) == (0x524C4131, 1)
                     assert struct.unpack_from("<II", memory, 12) == (15, 16384)
                     rate = wait_for(lambda: struct.unpack_from("<I", memory, 8)[0])
@@ -108,7 +114,12 @@ def main():
                                                            "audio_input_device": "none", "audio_output_device": "auto"}), encoding="utf-8")
                         # Sinks have no output connection: this tests native callback
                         # consumption without sending the probe to the speakers.
-                        launch([str(ROOT / "BespokeSynth/ignore/music-build/Source/BespokeSynth_artefacts/Release/BespokeSynth.exe"), str(preferences)], cwd=ROOT / "BespokeSynth")
+                        if os.name == "nt":
+                            executable = ROOT / "BespokeSynth/ignore/music-build/Source/BespokeSynth_artefacts/Release/BespokeSynth.exe"
+                        else:
+                            from start import bespoke_candidates
+                            executable = next(p for p in bespoke_candidates(ROOT, sys.platform) if p.is_file())
+                        launch([str(executable), str(preferences)], cwd=ROOT / "BespokeSynth")
                         for slot in slots.values():
                             wait_for(lambda: struct.unpack_from("<Q", memory, 72 + slot * 64)[0] > 4096, seconds=20)
                             consumed[slot] = struct.unpack_from("<Q", memory, 72 + slot * 64)[0]
@@ -126,6 +137,8 @@ def main():
                     if process.poll() is None:
                         process.terminate()
                     process.wait(timeout=8)
+                if exported_mapping is not None:
+                    unlink_stopped_mapping(exported_mapping, producer_pid)
 
 
 if __name__ == "__main__":

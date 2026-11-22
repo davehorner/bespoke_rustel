@@ -896,6 +896,7 @@ target_sources(BespokeSynth PRIVATE
     RustelView.h
     RustelAudio.cpp
     RustelAudio.h
+    RustelAudioShared.h
     RustelPattern.h
     VelocitySetter.h
     VelocityStepSequencer.cpp

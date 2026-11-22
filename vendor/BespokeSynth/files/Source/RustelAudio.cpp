@@ -11,15 +11,7 @@
 #include <cmath>
 #include <mutex>
 #include <set>
-#if JUCE_WINDOWS
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#undef LoadString
-#undef min
-#undef max
-#endif
+#include "RustelAudioShared.h"
 
 // The worker opens mappings, adapts sample rates and buffers PCM. Process only
 // consumes this fixed SPSC queue; it never opens a handle, takes a lock or waits.
@@ -61,14 +53,13 @@ public:
    uint64_t Epoch() const { return mEpoch.load(std::memory_order_acquire); }
 private:
    void run() override {
-#if JUCE_WINDOWS
-      HANDLE handle = nullptr; void* base = nullptr;
+      RustelAudioShared shared;
       std::string mapped;
       double position = 0;
       uint64_t epoch = 0, sourceEpoch = 0, lastHead = 0, lastHeadAt = 0;
-      auto close = [&] { if(base) UnmapViewOfFile(base);if(handle) CloseHandle(handle);base=nullptr;handle=nullptr;mapped.clear();mReceiving.store(false); };
-      auto load32 = [&](size_t offset) -> uint32_t { return uint32_t(InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(static_cast<char*>(base)+offset),0,0)); };
-      auto load64 = [&](size_t offset) -> uint64_t { return uint64_t(InterlockedCompareExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+offset),0,0)); };
+      auto close = [&] { shared.Close();mapped.clear();mReceiving.store(false); };
+      auto load32 = [&](size_t offset) { return shared.Load32(offset); };
+      auto load64 = [&](size_t offset) { return shared.Load64(offset); };
       auto sample = [&](int slot,uint64_t frame,int channel,float& out) {
          size_t at=4096+((size_t(slot)*16384+(frame&16383))*2+channel)*8;
          uint64_t bits=load64(at);
@@ -81,14 +72,12 @@ private:
          if (!config.active || config.slot<0 || config.slot>=15 || config.rate<=0) {close();wait(10);continue;}
          if(mapped!=config.mapping) {
             close();
-            if(config.mapping.rfind("Local\\RustelAudio-",0)!=0 || config.mapping.size()>128) {wait(100);continue;}
-            handle=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,juce::String(config.mapping).toWideCharPointer());
-            if(handle) base=MapViewOfFile(handle,FILE_MAP_ALL_ACCESS,0,0,4096+15*16384*2*8);
-            if(!base || load32(0)!=0x524c4131 || load32(4)!=1 || load32(12)!=15 || load32(16)!=16384) {close();wait(100);continue;}
-            mapped=config.mapping;epoch=0;lastHeadAt=GetTickCount64();lastHead=load64(24);
+            if(!shared.Open(config.mapping)) {wait(100);continue;}
+            mapped=config.mapping;epoch=0;lastHeadAt=RustelAudioShared::NowMillis();lastHead=load64(24);
          }
-         uint32_t rate=load32(8);uint64_t head=load64(24), se=load64(32), now=GetTickCount64();
+         uint32_t rate=load32(8);uint64_t head=load64(24), se=load64(32), now=RustelAudioShared::NowMillis();
          if(head!=lastHead) {lastHead=head;lastHeadAt=now;}
+         if(!shared.ProducerAlive()) {close();wait(100);continue;}
          if(rate<8000 || rate>384000 || now-lastHeadAt>500) {mReceiving.store(false);wait(5);continue;}
          double target=rate*0.05;
          if(epoch!=config.epoch || sourceEpoch!=se || position+2>=double(head) || double(head)-position>12000) {
@@ -97,7 +86,7 @@ private:
          }
          // Lease only a healthy, connected consumer. A stopped/deleted node's
          // lease expires automatically; another reader's lease is never cleared.
-         InterlockedExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+64+config.slot*64),LONG64(now));
+         shared.Store64(64+config.slot*64,now);
          uint64_t read=mRead.load(std::memory_order_acquire), write=mWrite.load(std::memory_order_relaxed);
          size_t goal=size_t(std::clamp(config.block*3,256,8192));
          double correction=std::clamp((double(head)-position-target)/target*0.002,-0.005,0.005);
@@ -112,12 +101,9 @@ private:
          mWrite.store(write,std::memory_order_release);mReceiving.store(true);wait(2);
          // Optional diagnostics for off-thread probes: frames consumed by the
          // real Bespoke audio callback, not just copied into its queue.
-         InterlockedExchange64(reinterpret_cast<volatile LONG64*>(static_cast<char*>(base)+72+config.slot*64),LONG64(mRead.load(std::memory_order_acquire)));
+         shared.Store64(72+config.slot*64,mRead.load(std::memory_order_acquire));
       }
       close();
-#else
-      while(!threadShouldExit()) wait(100);
-#endif
    }
    std::mutex mMutex;
    Config mConfig;

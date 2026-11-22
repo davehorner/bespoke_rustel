@@ -11,8 +11,9 @@ sample libraries, bundled assets and build products into this repository.
 Submodule pointers now refer to published upstream bases, so no unpublished
 custom submodule commits are needed to reconstruct the workspace.
 
-After cloning, run `../Setup.ps1`, which initializes nested dependencies and
-applies these patches. It checks SHA-256 checksums and preflights every patch;
+After cloning, run `Setup.ps1` on Windows or `./Setup.sh` on macOS/Linux from
+the workspace root. Unix setup uses Python 3.9+ and Git, without PowerShell.
+Both initialize nested dependencies and apply these patches. It checks SHA-256 checksums and preflights every patch;
 already-applied patches are skipped, while conflicting edits stop the operation.
 It does not discard local edits or create commits. Patched submodules are
 expected to show working-tree diffs afterward.

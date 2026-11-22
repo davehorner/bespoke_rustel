@@ -5,15 +5,26 @@ in Bespoke Synth and Nightshade. See [the integration guide](music-link/README.m
 
 ## Clone and prepare
 
-```powershell
+```sh
 git clone --recurse-submodules https://github.com/davehorner/bespoke_rustel.git
 cd bespoke_rustel
-.\Setup.ps1
 ```
 
-PowerShell 7 and Git are required for setup. Build prerequisites and commands are
-in `music-link/README.md`. Then use `Start Music.cmd` to launch with lane audio.
-The launcher uses your built executables; setup prepares source and does not build.
+| Platform | Setup | Start |
+| --- | --- | --- |
+| Windows | `.\Setup.ps1` (PowerShell 7) | Double-click `Start Music.cmd` |
+| macOS / Linux | `./Setup.sh` (Python 3.9+ and Git) | `./"Start Music.sh"` |
+
+On macOS, `Start Music.command` is also double-clickable. Setup initializes and
+patches source; the launcher builds missing components. Native compilers, Rust,
+CMake and platform audio/GUI development libraries must already be installed.
+See [platform prerequisites and options](music-link/README.md#macos-and-linux).
+
+Playback, lane observation, controls, viewers and per-lane `rustelaudio` stereo
+PCM are supported on Windows, macOS and Linux. Lane export is enabled by default
+by both start entry points; use `--no-lane-audio` on Unix to keep ordinary orbit
+routing. Native macOS runtime validation still needs a Mac; the CI matrix checks
+the Rust/C++ IPC contract on macOS and Linux.
 
 ## Where the code lives
 
@@ -47,8 +58,8 @@ git commit -m "Update music link integration"
 git push origin main
 ```
 
-Python 3 is needed for the refresh command, but not for applying existing vendor
-patches. Changes inside submodules are not saved by a parent commit until they
+Python 3 is needed for the refresh command and Unix setup. Windows setup can
+apply existing patches using PowerShell 7 alone. Changes inside submodules are not saved by a parent commit until they
 have been refreshed into `vendor/`. Source in `music-link/` is tracked directly.
 Do not move the parent submodule pointers to unpublished local commits; the
 vendored patches are based on the published pins in `vendor/manifest.json`.

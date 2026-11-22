@@ -171,7 +171,7 @@ try {
         } finally { $env:RUSTEL_MUSIC_LINK = $previousLink; $env:RUSTEL_LANE_AUDIO = $previousLaneAudio }
         Wait-Until { (Get-HubState).sessions.Count -gt 0 } 20 "Rustel is not publishing lanes. If reusing Studio, evaluate its score; otherwise inspect $logDirectory/rustel-error.log (audio device or score error)."
         if ($LaneAudio) {
-            Wait-Until { @((Get-HubState).sessions | Where-Object { $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Lane audio currently requires Windows."
+            Wait-Until { @((Get-HubState).sessions | Where-Object { $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Rebuild the updated native audio transport if this persists."
         }
 
         $preferences = Join-Path $PSScriptRoot 'native-view-prefs.json'

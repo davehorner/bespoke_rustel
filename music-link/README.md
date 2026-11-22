@@ -33,6 +33,67 @@ time and executable path. Reused apps are left running. Bespoke receives a norma
 close request so it can handle unsaved work. Multiple simultaneous launcher runs
 are prevented by a file lock.
 
+### macOS and Linux
+
+From the workspace root:
+
+```sh
+./Setup.sh
+./"Start Music.sh"
+./"Start Music.sh" --web
+./"Start Music.sh" --score "/path with spaces/song.strudel"
+./"Start Music.sh" --status
+./"Start Music.sh" --stop
+```
+
+macOS users can also double-click `Start Music.command`. Both wrappers use
+Python 3.9+ and need no PowerShell. `sh Setup.sh` and
+`sh "Start Music.sh"` work if a download did not preserve executable permissions.
+
+Install Git, Python 3 with development headers, the Rust toolchain required by
+Rustel, CMake and a native C/C++ toolchain first. On macOS, install the Xcode
+command-line tools. Linux also needs `pkg-config` and development libraries for
+audio and the desktop UI. Follow the platform lists in
+[Rustel's build guide](../rustel/docs/building.md) and
+[Bespoke's build guide](../BespokeSynth/README.md#building); its
+[Linux dependency list](../BespokeSynth/azure-pipelines.yml) supplies the native
+packages. The launcher does not run sudo or install system packages.
+
+`--web` additionally needs Node.js/npm, rustup and Trunk (`cargo install trunk
+--locked`). The launcher installs its pinned local wasm-bindgen CLI, adds the
+WASM Rust target, runs `npm ci` if needed, and builds the worker/CSS/web bundle.
+It serves only on loopback. Use `--no-open` to print the URL without opening a
+browser, or `--web-port 18766` to choose another port. An unrelated server on the
+chosen port is left alone and reported as a conflict.
+
+Native builds use `BespokeSynth/ignore/music-build-posix`, separate from the
+Windows Visual Studio build. The launcher finds either the Linux executable or
+the macOS `.app` executable. `--build` explicitly rebuilds components; ordinary
+startup builds only missing outputs. Close the affected apps before rebuilding.
+`--no-bespoke --web` runs just Rustel, the hub and Nightshade. `--silent` renders
+Rustel on its silent device for hardware-free observation; it produces no sound.
+
+The launcher reuses the same workspace's existing processes and preserves their
+settings and score. Runtime state is in `music-link/launcher-posix.json`; logs
+are under `music-link/logs`. A file lock prevents concurrent launchers. `--stop`
+checks both process start identity and executable, stops only launcher-owned
+background processes, and **leaves Bespoke open** so you can save and quit it
+normally. Reused external processes are never stopped.
+
+Lane discovery, transpose/Solo, native visualization, Nightshade and per-lane
+`rustelaudio` stereo PCM use the same node interface on Windows, macOS and Linux.
+Unix startup enables lane audio by default. Use `--no-lane-audio` to keep normal
+shared orbit routing, or `--lane-audio` to explicitly require the export. A reused
+Rustel must already have the requested export enabled; otherwise restart it.
+The native IPC contract check in CI runs on both Linux and macOS; full native
+macOS application playback has not been exercised on this Windows development host.
+
+Run the portable regression tests with:
+
+```sh
+python3 -m unittest discover -s music-link/tests -p 'test_*.py' -v
+```
+
 ### Manual startup
 
 Run commands from `R:\w\bespoke_rustel`, in separate PowerShell terminals.
@@ -285,7 +346,7 @@ available when the bridge is enabled. The external music protocol is unchanged.
 See [the architecture notes](contribution/ARCHITECTURE.md#typed-telemetry-boundary).
 
 
-### Per-lane stereo audio in Bespoke (Windows)
+### Per-lane stereo audio in Bespoke (Windows, macOS, Linux)
 
 `rustelaudio` is a normal Bespoke audio source. Add one node for each lane you
 want to process, choose its Rustel instance/lane, and connect its audio cable to
@@ -293,7 +354,7 @@ Bespoke filters, delays, mixers or an output. Multiple nodes may receive the sam
 lane; their output will sum if you connect them to the same destination.
 
 Build the updated hub, Rustel and Bespoke using the existing build instructions.
-Start a fresh Rustel process with lane export enabled:
+Start a fresh Rustel process with lane export enabled (Windows):
 
 ```powershell
 .\music-link\start.ps1 -LaneAudio
@@ -322,7 +383,8 @@ keep processing between notes; this does not reconstruct audio from event data.
 Normal Rustel stop/score-takeover rules still apply. Keyboard audition is not a
 score lane output.
 
-Hearsay/HTTP carries discovery only. PCM uses a versioned Windows named mapping,
+Hearsay/HTTP carries discovery only. PCM uses versioned native shared memory (Windows named mappings or POSIX
+`shm_open`/`mmap` objects on macOS/Linux),
 15 stereo rings of 16,384 frames, and tagged atomic samples. A Bespoke worker
 reads and linearly resamples each selected stream with a bounded clock-drift
 adjustment. There is about 50 ms of source buffering plus three Bespoke blocks;
@@ -340,8 +402,19 @@ memory is reclaimed when both processes release it; no PCM recordings are saved.
 The node remembers its selected session/lane in Bespoke's saved state; a new
 Rustel process has a new session ID and must be selected again.
 
-The implementation is Windows-only for now. Other platforms keep ordinary
-Rustel playback and do not advertise lane audio exports.
+On macOS/Linux, use `./"Start Music.sh"` (export is enabled by default), or
+set `RUSTEL_MUSIC_LINK=1 RUSTEL_LANE_AUDIO=1` for a manual launch. POSIX objects
+are created exclusively with mode 0600, use short names compatible with macOS,
+and are unlinked on normal producer destruction. Existing readers may finish
+using an unlinked mapping. The launcher cleans up after stopping its owned
+producer, and readers unlink streams when they detect a dead producer. A hard
+crash with no reader or launcher present can leave a POSIX object until OS
+cleanup; no audio files are written. Leases use the same OS monotonic clock on
+both peers, and all shared sample access uses lock-free 64-bit atomics.
+
+Hearsay remains the discovery/control transport. Its best-effort broker queues
+are useful for event telemetry but do not replace the PCM buffer's sample clock,
+resampling, gap handling and monitor leases.
 
 
 Verification commands (after building) are:
@@ -359,3 +432,16 @@ shared-memory diagnostics, and closes only processes it created. Run it with no
 other Bespoke instance open. The producer check uses Rustel's silent output and
 also verifies that removing a lane does not recycle its export slot. Existing
 build and protocol checks cover normal playback with export disabled.
+
+
+For a headless Rust-writer/C++-reader IPC contract test on macOS/Linux:
+
+```sh
+python3 music-link/tests/check_native_ipc.py
+```
+
+This compiles the shipping vendored writer/reader with deterministic sample
+blocks, checks tagged stereo reads, lease mute/recovery, normal unlink and
+hard-crash cleanup. It needs stable Rust, a C++17 compiler and Python 3, but no
+audio SDKs or device. The full application probe is
+`python3 music-link/check-lane-audio.py --bespoke` after native builds.

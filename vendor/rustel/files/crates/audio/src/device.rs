@@ -498,7 +498,7 @@ struct LiveStop(AtomicU8);
 
 #[derive(Clone)]
 struct LiveShared {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     lane_audio: Option<Arc<crate::lane_audio::LaneAudioMap>>,
     ring: Arc<Ring>,
     /// Hand-played notes bypass the score ring and its lookahead.

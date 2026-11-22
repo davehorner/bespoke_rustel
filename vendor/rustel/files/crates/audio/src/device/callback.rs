@@ -574,7 +574,7 @@ fn write_live_output_inner<T>(
     for (slot, pair) in pairs.iter_mut().zip(shared.orbit_pairs.iter()) {
         *slot = pair.load(Ordering::Relaxed);
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     if shared.lane_audio.is_some() { pairs[..crate::lane_audio::SLOTS].fill(0); }
     backend.set_orbit_pairs(pairs);
     let pairs_available = channels / 2;
@@ -656,7 +656,7 @@ fn write_live_output_inner<T>(
         }
         report.accepted += immediate.accepted;
         report.refused += immediate.refused;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if let (Some(export), Some(stems)) = (&shared.lane_audio, backend.stems()) {
             export.write(stems, meters.sample_rate, count, &mut scratch[..count*2]);
         }

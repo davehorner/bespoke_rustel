@@ -100,7 +100,7 @@ impl Session {
     }
     #[cfg(feature = "device-audio")]
     pub fn publish_music_audio(&mut self, device: &rustel_audio::LiveScalarDevice) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         { self.music.snapshot.lane_audio = device.lane_audio_mapping().map(|mapping| music_link::LaneAudioStream {
             mapping: mapping.to_owned(), lanes: self.music.lane_slots.clone(),
         }); }
@@ -167,7 +167,7 @@ impl Session {
         state.snapshot.cycle = cycle;
         state.snapshot.cps = cps;
         state.snapshot.lanes = lanes;
-        let exporting = cfg!(all(windows, feature = "device-audio"))
+        let exporting = cfg!(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))
             && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
         if exporting {
             for lane in &state.snapshot.lanes {

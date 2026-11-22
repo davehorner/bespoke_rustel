@@ -352,7 +352,7 @@ impl PreparedLiveOutput {
                     ))
                 })?;
         backend.set_sample_resampling_mode(options.sample_resampling_mode());
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if shared.lane_audio.is_some() { backend.capture_stems(); }
         backend.set_max_polyphony(shared.max_polyphony.load(Ordering::Relaxed));
         backend.set_input(Some(shared.input.clone()));

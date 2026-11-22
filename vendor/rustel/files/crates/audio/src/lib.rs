@@ -28,7 +28,7 @@ pub mod insert;
 pub mod limiter;
 pub mod live;
 pub mod live_control;
-#[cfg(all(windows, feature = "device-audio"))]
+#[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
 pub mod lane_audio;
 pub mod meter;
 #[cfg(windows)]

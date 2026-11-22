@@ -447,27 +447,27 @@ index 9235de6dc32ed9944d9cd005c70f7751b571ce03..f8fb92cacf9512e1c8787626d65a690c
  ] }
  
 diff --git a/crates/audio/src/device.rs b/crates/audio/src/device.rs
-index b3cfd6ad7546439292f9285a4ec666a1725b1be1..43daf1f96737cc2c6afbfaeca000b8409db7e7fe 100644
+index b3cfd6ad7546439292f9285a4ec666a1725b1be1..9f27d714fba22905650b610d6e51b6f6b504cf62 100644
 --- a/crates/audio/src/device.rs
 +++ b/crates/audio/src/device.rs
 @@ -498,6 +498,8 @@ struct LiveStop(AtomicU8);
  
  #[derive(Clone)]
  struct LiveShared {
-+    #[cfg(windows)]
++    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +    lane_audio: Option<Arc<crate::lane_audio::LaneAudioMap>>,
      ring: Arc<Ring>,
      /// Hand-played notes bypass the score ring and its lookahead.
      immediate: Arc<Ring>,
 diff --git a/crates/audio/src/device/callback.rs b/crates/audio/src/device/callback.rs
-index f2f9710750e24ec0e5b8cd0ee196766d3d80f85f..be5761001820aba5c4f78ad9168e11ff6b5c0b1f 100644
+index f2f9710750e24ec0e5b8cd0ee196766d3d80f85f..c315e2abef79e5d7ac1916532d429c63ba34196b 100644
 --- a/crates/audio/src/device/callback.rs
 +++ b/crates/audio/src/device/callback.rs
 @@ -574,6 +574,8 @@ fn write_live_output_inner<T>(
      for (slot, pair) in pairs.iter_mut().zip(shared.orbit_pairs.iter()) {
          *slot = pair.load(Ordering::Relaxed);
      }
-+    #[cfg(windows)]
++    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +    if shared.lane_audio.is_some() { pairs[..crate::lane_audio::SLOTS].fill(0); }
      backend.set_orbit_pairs(pairs);
      let pairs_available = channels / 2;
@@ -476,7 +476,7 @@ index f2f9710750e24ec0e5b8cd0ee196766d3d80f85f..be5761001820aba5c4f78ad9168e11ff
          }
          report.accepted += immediate.accepted;
          report.refused += immediate.refused;
-+        #[cfg(windows)]
++        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +        if let (Some(export), Some(stems)) = (&shared.lane_audio, backend.stems()) {
 +            export.write(stems, meters.sample_rate, count, &mut scratch[..count*2]);
 +        }
@@ -484,14 +484,14 @@ index f2f9710750e24ec0e5b8cd0ee196766d3d80f85f..be5761001820aba5c4f78ad9168e11ff
          // the output limiter.
          shared
 diff --git a/crates/audio/src/device/control.rs b/crates/audio/src/device/control.rs
-index d7b90e12086989278bc41e4a3f81b559527771ab..819f558c6b46fa4a2111312d4db8b830306c54f7 100644
+index d7b90e12086989278bc41e4a3f81b559527771ab..9fda27460bda2a2dc1923daafc02e6d57fc37502 100644
 --- a/crates/audio/src/device/control.rs
 +++ b/crates/audio/src/device/control.rs
 @@ -50,6 +50,8 @@ impl LiveStop {
  impl LiveShared {
      pub(super) fn new(initial_generation: u64) -> Self {
          Self {
-+            #[cfg(windows)]
++            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +            lane_audio: crate::lane_audio::LaneAudioMap::from_environment(),
              ring: Arc::new(Ring::new(LIVE_RING_CAPACITY)),
              immediate: Arc::new(Ring::new(64)),
@@ -501,7 +501,7 @@ index d7b90e12086989278bc41e4a3f81b559527771ab..819f558c6b46fa4a2111312d4db8b830
  
  impl LiveScalarDevice {
 +    /// The producer advertises only successfully created exports.
-+    #[cfg(windows)]
++    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +    pub fn lane_audio_mapping(&self) -> Option<&str> {
 +        self.shared.lane_audio.as_ref().map(|map| map.name())
 +    }
@@ -509,27 +509,28 @@ index d7b90e12086989278bc41e4a3f81b559527771ab..819f558c6b46fa4a2111312d4db8b830
      pub fn take_levels(&self) -> crate::meter::MasterLevels {
          self.shared.meter.take()
 diff --git a/crates/audio/src/device/stream.rs b/crates/audio/src/device/stream.rs
-index 83f2e29ba5130d29b287bacc4e40fb27cbb28984..be94e4a27e3306ad342379e4b3969138a15287e5 100644
+index 83f2e29ba5130d29b287bacc4e40fb27cbb28984..b03242cb96af3ca013ddd0f5d0670ae97e3f8c2c 100644
 --- a/crates/audio/src/device/stream.rs
 +++ b/crates/audio/src/device/stream.rs
 @@ -352,6 +352,8 @@ impl PreparedLiveOutput {
                      ))
                  })?;
          backend.set_sample_resampling_mode(options.sample_resampling_mode());
-+        #[cfg(windows)]
++        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +        if shared.lane_audio.is_some() { backend.capture_stems(); }
          backend.set_max_polyphony(shared.max_polyphony.load(Ordering::Relaxed));
          backend.set_input(Some(shared.input.clone()));
          backend.set_confirmations(shared.confirmations.clone());
 diff --git a/crates/audio/src/lane_audio.rs b/crates/audio/src/lane_audio.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c606a283a
+index 0000000000000000000000000000000000000000..4f920cac4158e429aac9a68ca956d924b3677880
 --- /dev/null
 +++ b/crates/audio/src/lane_audio.rs
-@@ -0,0 +1,277 @@
-+//! Windows shared-memory stereo stems. Layout is mirrored by RustelAudio.cpp.
+@@ -0,0 +1,359 @@
++//! Native shared-memory stereo stems (Windows and POSIX). Layout is mirrored by RustelAudio.cpp.
 +//! Creation, page commitment and destruction occur off the audio callback.
 +use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
++#[cfg(windows)]
 +use windows_sys::Win32::{
 +    Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
 +    System::{
@@ -549,7 +550,10 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +
 +pub struct LaneAudioMap {
 +    name: String,
++    #[cfg(windows)]
 +    handle: HANDLE,
++    #[cfg(unix)]
++    fd: libc::c_int,
 +    base: *mut u8,
 +    monitor_fades: [AtomicU32; SLOTS],
 +}
@@ -580,39 +584,94 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +            .duration_since(std::time::UNIX_EPOCH)
 +            .unwrap_or_default()
 +            .as_nanos();
++        #[cfg(windows)]
 +        let name = format!(
 +            "Local\\RustelAudio-{}-{}-{nonce}",
 +            std::process::id(),
 +            NEXT.fetch_add(1, Ordering::Relaxed)
 +        );
-+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
-+        // SAFETY: null security/file arguments create a paging-file mapping of the stated size.
-+        let handle = unsafe {
-+            CreateFileMappingW(
-+                INVALID_HANDLE_VALUE,
-+                std::ptr::null(),
-+                PAGE_READWRITE,
-+                0,
-+                BYTES as u32,
-+                wide.as_ptr(),
-+            )
-+        };
-+        if handle.is_null() {
-+            return Err(std::io::Error::last_os_error());
-+        }
-+        // SAFETY: handle is valid; size is the exact size created above.
-+        let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, BYTES) };
-+        if view.Value.is_null() {
-+            let error = std::io::Error::last_os_error();
-+            unsafe {
-+                CloseHandle(handle);
++        // macOS limits POSIX shm names to 31 bytes, including the initial slash.
++        #[cfg(unix)]
++        let name = format!(
++            "/rla-{:x}-{:x}",
++            std::process::id(),
++            nonce as u64 ^ NEXT.fetch_add(1, Ordering::Relaxed)
++        );
++        #[cfg(windows)]
++        let (handle, base) = {
++            let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
++            let handle = unsafe {
++                CreateFileMappingW(
++                    INVALID_HANDLE_VALUE,
++                    std::ptr::null(),
++                    PAGE_READWRITE,
++                    0,
++                    BYTES as u32,
++                    wide.as_ptr(),
++                )
++            };
++            if handle.is_null() {
++                return Err(std::io::Error::last_os_error());
 +            }
-+            return Err(error);
-+        }
++            let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, BYTES) };
++            if view.Value.is_null() {
++                let error = std::io::Error::last_os_error();
++                unsafe {
++                    CloseHandle(handle);
++                }
++                return Err(error);
++            }
++            (handle, view.Value.cast::<u8>())
++        };
++        #[cfg(unix)]
++        let (fd, base) = {
++            let c_name = std::ffi::CString::new(name.as_str()).expect("generated ASCII name");
++            // Exclusive creation and mode 0600 keep streams private to this user.
++            let fd = unsafe {
++                libc::shm_open(
++                    c_name.as_ptr(),
++                    libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
++                    0o600,
++                )
++            };
++            if fd < 0 {
++                return Err(std::io::Error::last_os_error());
++            }
++            let cleanup = || unsafe {
++                libc::close(fd);
++                libc::shm_unlink(c_name.as_ptr());
++            };
++            if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0
++                || unsafe { libc::ftruncate(fd, BYTES as libc::off_t) } < 0
++            {
++                let error = std::io::Error::last_os_error();
++                cleanup();
++                return Err(error);
++            }
++            let base = unsafe {
++                libc::mmap(
++                    std::ptr::null_mut(),
++                    BYTES,
++                    libc::PROT_READ | libc::PROT_WRITE,
++                    libc::MAP_SHARED,
++                    fd,
++                    0,
++                )
++            };
++            if base == libc::MAP_FAILED {
++                let error = std::io::Error::last_os_error();
++                cleanup();
++                return Err(error);
++            }
++            (fd, base.cast::<u8>())
++        };
 +        let map = Self {
 +            name,
++            #[cfg(windows)]
 +            handle,
-+            base: view.Value.cast(),
++            #[cfg(unix)]
++            fd,
++            base,
 +            monitor_fades: std::array::from_fn(|_| AtomicU32::new(0)),
 +        };
 +        // Touch every page and initialize the storage before publishing its name.
@@ -648,8 +707,8 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +            self.u64(32).fetch_add(1, Ordering::AcqRel);
 +        }
 +        let start = self.u64(24).load(Ordering::Relaxed);
-+        // GetTickCount64 reads the Windows monotonic uptime; readers use the same clock.
-+        let now = unsafe { GetTickCount64() };
++        // Both native peers use the same OS monotonic clock.
++        let now = monotonic_millis();
 +        for slot in 0..SLOTS {
 +            let samples = stems.orbit(slot, frames);
 +            let lease = self.u64(64 + slot * 64).load(Ordering::Acquire);
@@ -677,13 +736,39 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +        self.u64(24).store(start + frames as u64, Ordering::Release);
 +    }
 +}
++/// Shared clock domain for monitor leases; no allocation or locking.
++pub fn monotonic_millis() -> u64 {
++    #[cfg(windows)]
++    {
++        unsafe { GetTickCount64() }
++    }
++    #[cfg(unix)]
++    {
++        let mut time = libc::timespec {
++            tv_sec: 0,
++            tv_nsec: 0,
++        };
++        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) } != 0 {
++            return 0;
++        }
++        time.tv_sec as u64 * 1000 + time.tv_nsec as u64 / 1_000_000
++    }
++}
 +impl Drop for LaneAudioMap {
 +    fn drop(&mut self) {
++        #[cfg(windows)]
 +        unsafe {
 +            UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
 +                Value: self.base.cast(),
 +            });
 +            CloseHandle(self.handle);
++        }
++        #[cfg(unix)]
++        unsafe {
++            libc::munmap(self.base.cast(), BYTES);
++            libc::close(self.fd);
++            let name = std::ffi::CString::new(self.name.as_str()).expect("generated name");
++            libc::shm_unlink(name.as_ptr());
 +        }
 +    }
 +}
@@ -737,8 +822,7 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +            assert_eq!(read(&map, 2, (i / 2) as u64, i % 2), 0.0);
 +        }
 +        assert_ne!(taps.orbit(0, 128), taps.orbit(1, 128));
-+        map.u64(64)
-+            .store(unsafe { GetTickCount64() }, Ordering::Release);
++        map.u64(64).store(monotonic_millis(), Ordering::Release);
 +        for _ in 0..4 {
 +            let mut warmup = expected;
 +            map.write(taps, 48000, 128, &mut warmup);
@@ -748,10 +832,8 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +        for i in 0..256 {
 +            assert!((monitored[i] - taps.orbit(1, 128)[i]).abs() < 1e-6);
 +        }
-+        map.u64(64).store(
-+            unsafe { GetTickCount64() }.saturating_sub(1000),
-+            Ordering::Release,
-+        );
++        map.u64(64)
++            .store(monotonic_millis().saturating_sub(1000), Ordering::Release);
 +        for _ in 0..4 {
 +            let mut warmup = expected;
 +            map.write(taps, 48000, 128, &mut warmup);
@@ -805,30 +887,30 @@ index 0000000000000000000000000000000000000000..7b164dee2c1ad58e262ced067f00231c
 +    }
 +}
 diff --git a/crates/audio/src/lib.rs b/crates/audio/src/lib.rs
-index 77f820b3d1cc599a1c5e38ddfa8815d4756dbfa2..cbafbf7aa50efa047dd69d3f67c6ccb972ae5155 100644
+index 77f820b3d1cc599a1c5e38ddfa8815d4756dbfa2..5d7abf23f112939b711847517b5a2c79f5cabd46 100644
 --- a/crates/audio/src/lib.rs
 +++ b/crates/audio/src/lib.rs
 @@ -28,6 +28,8 @@ pub mod insert;
  pub mod limiter;
  pub mod live;
  pub mod live_control;
-+#[cfg(all(windows, feature = "device-audio"))]
++#[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
 +pub mod lane_audio;
  pub mod meter;
  #[cfg(windows)]
  pub mod mmcss;
 diff --git a/crates/audio/src/live.rs b/crates/audio/src/live.rs
-index 3e2c018468b04101b55400295fe92b2ad68bee52..82f7366653c09ef679cf16d93359b3928e4b89b6 100644
+index 3e2c018468b04101b55400295fe92b2ad68bee52..8971bd2e47a9a665246ddc340f2e085194e85c6f 100644
 --- a/crates/audio/src/live.rs
 +++ b/crates/audio/src/live.rs
 @@ -279,6 +279,12 @@ impl LiveScalarBackend {
          self.scalar.take_orbit_peaks()
      }
  
-+    #[cfg(all(windows, feature = "device-audio"))]
++    #[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
 +    pub(crate) fn capture_stems(&mut self) { self.scalar.capture_stems(); }
 +
-+    #[cfg(all(windows, feature = "device-audio"))]
++    #[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
 +    pub(crate) fn stems(&self) -> Option<&crate::scalar::Stems> { self.scalar.stems() }
 +
      #[cfg(feature = "device-audio")]
@@ -1142,7 +1224,7 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..56f73e83354093052170b87a7659e37eca473196
+index 0000000000000000000000000000000000000000..c883d338b070214b2dc6db37f016b49b3583dc43
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
 @@ -0,0 +1,419 @@
@@ -1248,7 +1330,7 @@ index 0000000000000000000000000000000000000000..56f73e83354093052170b87a7659e37e
 +    }
 +    #[cfg(feature = "device-audio")]
 +    pub fn publish_music_audio(&mut self, device: &rustel_audio::LiveScalarDevice) {
-+        #[cfg(windows)]
++        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 +        { self.music.snapshot.lane_audio = device.lane_audio_mapping().map(|mapping| music_link::LaneAudioStream {
 +            mapping: mapping.to_owned(), lanes: self.music.lane_slots.clone(),
 +        }); }
@@ -1315,7 +1397,7 @@ index 0000000000000000000000000000000000000000..56f73e83354093052170b87a7659e37e
 +        state.snapshot.cycle = cycle;
 +        state.snapshot.cps = cps;
 +        state.snapshot.lanes = lanes;
-+        let exporting = cfg!(all(windows, feature = "device-audio"))
++        let exporting = cfg!(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))
 +            && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
 +        if exporting {
 +            for lane in &state.snapshot.lanes {

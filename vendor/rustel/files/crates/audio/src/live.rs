@@ -279,10 +279,10 @@ impl LiveScalarBackend {
         self.scalar.take_orbit_peaks()
     }
 
-    #[cfg(all(windows, feature = "device-audio"))]
+    #[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
     pub(crate) fn capture_stems(&mut self) { self.scalar.capture_stems(); }
 
-    #[cfg(all(windows, feature = "device-audio"))]
+    #[cfg(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))]
     pub(crate) fn stems(&self) -> Option<&crate::scalar::Stems> { self.scalar.stems() }
 
     #[cfg(feature = "device-audio")]

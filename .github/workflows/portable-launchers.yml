@@ -1,0 +1,26 @@
+name: Portable setup and launcher checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell entry points
+        run: |
+          for script in Setup.sh "Start Music.sh" "Start Music.command"; do
+            test -x "$script"
+            sh -n "$script"
+          done
+          sh "Start Music.sh" --help
+      - name: Test setup and process ownership
+        run: python3 -m unittest discover -s music-link/tests -p 'test_*.py' -v
+      - name: Test native lane audio IPC
+        run: python3 music-link/tests/check_native_ipc.py

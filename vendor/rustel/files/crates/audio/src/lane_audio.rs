@@ -1,6 +1,7 @@
-//! Windows shared-memory stereo stems. Layout is mirrored by RustelAudio.cpp.
+//! Native shared-memory stereo stems (Windows and POSIX). Layout is mirrored by RustelAudio.cpp.
 //! Creation, page commitment and destruction occur off the audio callback.
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+#[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
     System::{
@@ -20,7 +21,10 @@ const MAGIC: u32 = 0x524c4131;
 
 pub struct LaneAudioMap {
     name: String,
+    #[cfg(windows)]
     handle: HANDLE,
+    #[cfg(unix)]
+    fd: libc::c_int,
     base: *mut u8,
     monitor_fades: [AtomicU32; SLOTS],
 }
@@ -51,39 +55,94 @@ impl LaneAudioMap {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
+        #[cfg(windows)]
         let name = format!(
             "Local\\RustelAudio-{}-{}-{nonce}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         );
-        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
-        // SAFETY: null security/file arguments create a paging-file mapping of the stated size.
-        let handle = unsafe {
-            CreateFileMappingW(
-                INVALID_HANDLE_VALUE,
-                std::ptr::null(),
-                PAGE_READWRITE,
-                0,
-                BYTES as u32,
-                wide.as_ptr(),
-            )
-        };
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        // SAFETY: handle is valid; size is the exact size created above.
-        let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, BYTES) };
-        if view.Value.is_null() {
-            let error = std::io::Error::last_os_error();
-            unsafe {
-                CloseHandle(handle);
+        // macOS limits POSIX shm names to 31 bytes, including the initial slash.
+        #[cfg(unix)]
+        let name = format!(
+            "/rla-{:x}-{:x}",
+            std::process::id(),
+            nonce as u64 ^ NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        #[cfg(windows)]
+        let (handle, base) = {
+            let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+            let handle = unsafe {
+                CreateFileMappingW(
+                    INVALID_HANDLE_VALUE,
+                    std::ptr::null(),
+                    PAGE_READWRITE,
+                    0,
+                    BYTES as u32,
+                    wide.as_ptr(),
+                )
+            };
+            if handle.is_null() {
+                return Err(std::io::Error::last_os_error());
             }
-            return Err(error);
-        }
+            let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, BYTES) };
+            if view.Value.is_null() {
+                let error = std::io::Error::last_os_error();
+                unsafe {
+                    CloseHandle(handle);
+                }
+                return Err(error);
+            }
+            (handle, view.Value.cast::<u8>())
+        };
+        #[cfg(unix)]
+        let (fd, base) = {
+            let c_name = std::ffi::CString::new(name.as_str()).expect("generated ASCII name");
+            // Exclusive creation and mode 0600 keep streams private to this user.
+            let fd = unsafe {
+                libc::shm_open(
+                    c_name.as_ptr(),
+                    libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
+                    0o600,
+                )
+            };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let cleanup = || unsafe {
+                libc::close(fd);
+                libc::shm_unlink(c_name.as_ptr());
+            };
+            if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0
+                || unsafe { libc::ftruncate(fd, BYTES as libc::off_t) } < 0
+            {
+                let error = std::io::Error::last_os_error();
+                cleanup();
+                return Err(error);
+            }
+            let base = unsafe {
+                libc::mmap(
+                    std::ptr::null_mut(),
+                    BYTES,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    0,
+                )
+            };
+            if base == libc::MAP_FAILED {
+                let error = std::io::Error::last_os_error();
+                cleanup();
+                return Err(error);
+            }
+            (fd, base.cast::<u8>())
+        };
         let map = Self {
             name,
+            #[cfg(windows)]
             handle,
-            base: view.Value.cast(),
+            #[cfg(unix)]
+            fd,
+            base,
             monitor_fades: std::array::from_fn(|_| AtomicU32::new(0)),
         };
         // Touch every page and initialize the storage before publishing its name.
@@ -119,8 +178,8 @@ impl LaneAudioMap {
             self.u64(32).fetch_add(1, Ordering::AcqRel);
         }
         let start = self.u64(24).load(Ordering::Relaxed);
-        // GetTickCount64 reads the Windows monotonic uptime; readers use the same clock.
-        let now = unsafe { GetTickCount64() };
+        // Both native peers use the same OS monotonic clock.
+        let now = monotonic_millis();
         for slot in 0..SLOTS {
             let samples = stems.orbit(slot, frames);
             let lease = self.u64(64 + slot * 64).load(Ordering::Acquire);
@@ -148,13 +207,39 @@ impl LaneAudioMap {
         self.u64(24).store(start + frames as u64, Ordering::Release);
     }
 }
+/// Shared clock domain for monitor leases; no allocation or locking.
+pub fn monotonic_millis() -> u64 {
+    #[cfg(windows)]
+    {
+        unsafe { GetTickCount64() }
+    }
+    #[cfg(unix)]
+    {
+        let mut time = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) } != 0 {
+            return 0;
+        }
+        time.tv_sec as u64 * 1000 + time.tv_nsec as u64 / 1_000_000
+    }
+}
 impl Drop for LaneAudioMap {
     fn drop(&mut self) {
+        #[cfg(windows)]
         unsafe {
             UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: self.base.cast(),
             });
             CloseHandle(self.handle);
+        }
+        #[cfg(unix)]
+        unsafe {
+            libc::munmap(self.base.cast(), BYTES);
+            libc::close(self.fd);
+            let name = std::ffi::CString::new(self.name.as_str()).expect("generated name");
+            libc::shm_unlink(name.as_ptr());
         }
     }
 }
@@ -208,8 +293,7 @@ mod tests {
             assert_eq!(read(&map, 2, (i / 2) as u64, i % 2), 0.0);
         }
         assert_ne!(taps.orbit(0, 128), taps.orbit(1, 128));
-        map.u64(64)
-            .store(unsafe { GetTickCount64() }, Ordering::Release);
+        map.u64(64).store(monotonic_millis(), Ordering::Release);
         for _ in 0..4 {
             let mut warmup = expected;
             map.write(taps, 48000, 128, &mut warmup);
@@ -219,10 +303,8 @@ mod tests {
         for i in 0..256 {
             assert!((monitored[i] - taps.orbit(1, 128)[i]).abs() < 1e-6);
         }
-        map.u64(64).store(
-            unsafe { GetTickCount64() }.saturating_sub(1000),
-            Ordering::Release,
-        );
+        map.u64(64)
+            .store(monotonic_millis().saturating_sub(1000), Ordering::Release);
         for _ in 0..4 {
             let mut warmup = expected;
             map.write(taps, 48000, 128, &mut warmup);
