@@ -22,7 +22,7 @@ When developing, edit files in the normal project directories, then run:
 
 ```powershell
 python vendor/update.py
-git add vendor music-link "Start Music.cmd"
+git add vendor music-link start_music.cmd
 git diff --cached --stat
 git commit -m "Update vendored music link integration"
 git push

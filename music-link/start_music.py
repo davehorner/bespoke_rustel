@@ -1,4 +1,4 @@
-"""macOS/Linux workspace launcher (Python 3.9+). Windows uses start.ps1."""
+"""macOS/Linux workspace launcher (Python 3.9+). Windows uses start_music.ps1."""
 import argparse
 from contextlib import contextmanager
 import json
@@ -254,26 +254,31 @@ class Launcher:
                                                   "audio_input_device": "none", "audio_output_device": "auto"}, indent=2))
             self.ensure("bespoke", bespoke, [preferences], cwd=self.root / "BespokeSynth")
         if args.web:
-            build_viewer(self.root, args.build)
-            url = f"http://127.0.0.1:{args.web_port}/"
-            try:
-                with HTTP.open(url, timeout=1) as response:
-                    served = "<title>Nightshade Viewer</title>" in response.read(1_000_000).decode(errors="replace")
-                if not served:
-                    raise RuntimeError(f"Port {args.web_port} is occupied by another application")
-            except urllib.error.HTTPError as error:
-                raise RuntimeError(f"Port {args.web_port} is occupied (HTTP {error.code}); choose --web-port") from error
-            except urllib.error.URLError:
-                self.ensure("web", sys.executable, ["-m", "http.server", str(args.web_port), "--bind", "127.0.0.1",
-                                                   "--directory", str(self.root / "nightshade-viewer/dist")], discover=False)
-                wait_for(lambda: page_ready(url), 10, "Viewer HTTP server did not become ready")
-            if not args.no_open and not self.state["web_opened"]:
-                if webbrowser.open(url + "?music=1"):
-                    self.state["web_opened"] = True
-                    self.save()
-            print(f"Web viewer: {url}?music=1")
+            self.start_web(args)
         print("Ready. " + ("Per-lane stereo PCM export enabled." if args.lane_audio else "Lane PCM export disabled."))
         print(f"Logs: {self.logs}")
+
+    def start_web(self, args):
+        build_viewer(self.root, args.build)
+        url = f"http://127.0.0.1:{args.web_port}/"
+        try:
+            with HTTP.open(url, timeout=1) as response:
+                served = "<title>Nightshade Viewer</title>" in response.read(1_000_000).decode(errors="replace")
+            if not served:
+                raise RuntimeError(f"Port {args.web_port} is occupied by another application")
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"Port {args.web_port} is occupied (HTTP {error.code}); choose --web-port") from error
+        except urllib.error.URLError:
+            self.ensure("web", sys.executable, ["-m", "http.server", str(args.web_port), "--bind", "127.0.0.1",
+                                               "--directory", str(self.root / "nightshade-viewer/dist")], discover=False)
+            wait_for(lambda: page_ready(url), 10, "Viewer HTTP server did not become ready")
+        print(f"Nightshade viewer: {url}?music=1", flush=True)
+        if not args.no_open:
+            try:
+                if not webbrowser.open(url + "?music=1"):
+                    print("Browser could not open; use the Nightshade URL printed above.")
+            except (OSError, webbrowser.Error) as error:
+                print(f"Browser could not open; use the Nightshade URL printed above. {error}")
 
 
 def page_ready(url):
@@ -287,7 +292,8 @@ def page_ready(url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--score", default=str(ROOT / "music-link/demo.strudel"))
-    parser.add_argument("--web", action="store_true")
+    parser.add_argument("--web", action=argparse.BooleanOptionalAction, default=True,
+                        help="Start Nightshade and open its URL (default; --no-web disables)")
     parser.add_argument("--web-port", type=int, default=18765)
     parser.add_argument("--silent", action="store_true")
     parser.add_argument("--build", action="store_true")
@@ -299,7 +305,7 @@ def main():
                         help="Per-lane stereo audio export (default enabled; --no-lane-audio disables)")
     args = parser.parse_args()
     if sys.platform not in ("linux", "darwin"):
-        parser.error("On Windows, use Start Music.cmd or music-link/start.ps1")
+        parser.error("On Windows, use start_music.cmd or music-link/start_music.ps1")
     if not 1024 <= args.web_port <= 65535:
         parser.error("--web-port must be between 1024 and 65535")
     if args.status and args.stop:

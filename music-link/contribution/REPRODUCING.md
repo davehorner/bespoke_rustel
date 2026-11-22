@@ -52,7 +52,7 @@ do not work around Windows executable locks by renaming outputs.
 ## Start and exercise
 
 ```powershell
-./music-link/start.ps1 -Web
+./music-link/start_music.ps1 -Web
 ```
 
 The launcher starts or reuses the hub, watched nine-lane demo and native Bespoke

@@ -117,7 +117,7 @@ def main():
                         if os.name == "nt":
                             executable = ROOT / "BespokeSynth/ignore/music-build/Source/BespokeSynth_artefacts/Release/BespokeSynth.exe"
                         else:
-                            from start import bespoke_candidates
+                            from start_music import bespoke_candidates
                             executable = next(p for p in bespoke_candidates(ROOT, sys.platform) if p.is_file())
                         launch([str(executable), str(preferences)], cwd=ROOT / "BespokeSynth")
                         for slot in slots.values():

@@ -12,10 +12,13 @@ cd bespoke_rustel
 
 | Platform | Setup | Start |
 | --- | --- | --- |
-| Windows | `.\Setup.ps1` (PowerShell 7) | Double-click `Start Music.cmd` |
-| macOS / Linux | `./Setup.sh` (Python 3.9+ and Git) | `./"Start Music.sh"` |
+| Windows | `.\Setup.ps1` (PowerShell 7) | Double-click `start_music.cmd` |
+| macOS / Linux | `./Setup.sh` (Python 3.9+ and Git) | `./start_music.sh` |
 
-On macOS, `Start Music.command` is also double-clickable. Setup initializes and
+All start launchers start Nightshade, print
+`http://127.0.0.1:18765/?music=1`, and open it in your browser by default.
+
+On macOS, `start_music.command` is also double-clickable. Setup initializes and
 patches source; the launcher builds missing components. Native compilers, Rust,
 CMake and platform audio/GUI development libraries must already be installed.
 See [platform prerequisites and options](music-link/README.md#macos-and-linux).

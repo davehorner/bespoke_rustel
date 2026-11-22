@@ -2,7 +2,9 @@
 [CmdletBinding()]
 param(
     [string]$Score = (Join-Path $PSScriptRoot 'demo.strudel'),
-    [switch]$Web,
+    [switch]$Web = $true,
+    [switch]$NoWeb,
+    [switch]$NoOpen,
     [int]$WebPort = 18765,
     [switch]$Silent,
     [switch]$LaneAudio,
@@ -101,6 +103,36 @@ function Ensure-Process([string]$Role, [string]$Executable, [string[]]$Arguments
     return $process
 }
 
+function Start-NightshadeViewer {
+    $dist = Join-Path $workspace 'nightshade-viewer/dist'
+    if ($WebPort -lt 1024 -or $WebPort -gt 65535) { throw 'WebPort must be between 1024 and 65535.' }
+    if ($Build -or !(Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
+        $bindgen = Join-Path (Join-Path $workspace 'music-link') 'tools/bin/wasm-bindgen.exe'
+        if (!(Test-Path -LiteralPath $bindgen)) {
+            Invoke-Build 'cargo' @('install', 'wasm-bindgen-cli', '--version', '0.2.115', '--root', (Join-Path (Join-Path $workspace 'music-link') 'tools'), '--locked')
+        }
+        if (!(Test-Path -LiteralPath (Join-Path $workspace 'nightshade-viewer/node_modules'))) {
+            Push-Location (Join-Path $workspace 'nightshade-viewer')
+            try { Invoke-Build 'npm' @('ci') } finally { Pop-Location }
+        }
+        & (Join-Path (Join-Path $workspace 'music-link') 'build-viewer.ps1')
+    }
+    $url = "http://127.0.0.1:$WebPort/"
+    $served = $false
+    try { $served = (Invoke-WebRequest $url -TimeoutSec 2 -NoProxy).Content.Contains('<title>Nightshade Viewer</title>') } catch { }
+    if (!$served) {
+        $python = (Get-Command python -ErrorAction Stop).Source
+        $null = Ensure-Process 'web' $python @('-m', 'http.server', "$WebPort", '--bind', '127.0.0.1', '--directory', $dist) @('__no_existing_python_match__') @()
+        Wait-Until { try { (Invoke-WebRequest $url -TimeoutSec 2 -NoProxy).StatusCode -eq 200 } catch { $false } } 10 "Viewer server failed. Port $WebPort may be occupied; use -WebPort to choose another."
+    }
+    Write-Host "Nightshade viewer: $($url)?music=1" -ForegroundColor Green
+    if (!$NoOpen) {
+        try { Start-Process ($url + '?music=1') }
+        catch { Write-Warning "Browser could not open. Use the Nightshade URL printed above. $($_.Exception.Message)" }
+    }
+}
+
+
 try {
     try { $lock = [System.IO.File]::Open((Join-Path $PSScriptRoot 'launcher.lock'), 'OpenOrCreate', 'ReadWrite', 'None') }
     catch { throw 'Another launcher is already working. Wait for it to finish, then try again.' }
@@ -158,7 +190,7 @@ try {
             $null = Ensure-Process 'hub' $hubExe @() @('music-hub') @($hubExe)
             Wait-Until { (Get-HubState).healthy } 15 "Hub did not become ready. See $logDirectory/hub-error.log; check ports 9612–9614."
         } else {
-            $null = Ensure-Process 'hub' $hubExe @() @('music-hub') @($hubExe)
+            Write-Host 'Reusing existing music hub at http://127.0.0.1:9614' -ForegroundColor DarkCyan
         }
         $previousLink = $env:RUSTEL_MUSIC_LINK
         $previousLaneAudio = $env:RUSTEL_LANE_AUDIO
@@ -181,31 +213,7 @@ try {
         }
         $null = Ensure-Process 'bespoke' $bespokeExe @($preferences) @('BespokeSynth') @($bespokeExe)
 
-        if ($Web) {
-            $dist = Join-Path $workspace 'nightshade-viewer/dist'
-            if ($WebPort -lt 1024 -or $WebPort -gt 65535) { throw 'WebPort must be between 1024 and 65535.' }
-            if ($Build -or !(Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
-                $bindgen = Join-Path $PSScriptRoot 'tools/bin/wasm-bindgen.exe'
-                if (!(Test-Path -LiteralPath $bindgen)) {
-                    Invoke-Build 'cargo' @('install', 'wasm-bindgen-cli', '--version', '0.2.115', '--root', (Join-Path $PSScriptRoot 'tools'), '--locked')
-                }
-                if (!(Test-Path -LiteralPath (Join-Path $workspace 'nightshade-viewer/node_modules'))) {
-                    Push-Location (Join-Path $workspace 'nightshade-viewer')
-                    try { Invoke-Build 'npm' @('ci') } finally { Pop-Location }
-                }
-                & (Join-Path $PSScriptRoot 'build-viewer.ps1')
-            }
-            $url = "http://127.0.0.1:$WebPort/"
-            $served = $false
-            try { $served = (Invoke-WebRequest $url -TimeoutSec 2 -NoProxy).Content.Contains('<title>Nightshade Viewer</title>') } catch { }
-            if (!$served) {
-                $python = (Get-Command python -ErrorAction Stop).Source
-                $null = Ensure-Process 'web' $python @('-m', 'http.server', "$WebPort", '--bind', '127.0.0.1', '--directory', $dist) @('__no_existing_python_match__') @()
-                Wait-Until { try { (Invoke-WebRequest $url -TimeoutSec 2 -NoProxy).StatusCode -eq 200 } catch { $false } } 10 "Viewer server failed. Port $WebPort may be occupied; use -WebPort to choose another."
-            }
-            if (!$script:LaunchState.webOpened) { Start-Process ($url + '?music=1'); $script:LaunchState.webOpened = $true; Save-LauncherState }
-            Write-Host "Web viewer: $($url)?music=1"
-        }
+        if ($Web -and !$NoWeb) { Start-NightshadeViewer }
         $hub = Get-HubState
         foreach ($session in $hub.sessions) { Write-Host "Ready: $(@($session.lanes).Count) live lanes / $($session.session)" -ForegroundColor Green }
         Write-Host "Native viewer ready. Logs: $logDirectory"

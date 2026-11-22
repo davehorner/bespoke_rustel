@@ -11,18 +11,22 @@ architecture, reproduction steps and discussion/PR drafts.
 
 ## Start
 
-Double-click `Start Music.cmd` at the workspace root, or run:
+Double-click `start_music.cmd` at the workspace root, or run:
 
 ```powershell
-./music-link/start.ps1
+./music-link/start_music.ps1
 ```
 
-The launcher builds missing native components, starts or reuses the hub, watched
-demo player and native Bespoke viewer, and waits for live lanes before reporting
-ready. Run it again without duplicating those apps. It does not close existing
+The launcher builds missing components, starts or reuses the hub, watched demo
+player, native Bespoke viewer and Nightshade web server, and waits for live lanes
+before reporting ready. It prints `http://127.0.0.1:18765/?music=1` and opens
+Nightshade in your browser on every launch, including when the server is reused.
+Run it again without duplicating those apps. It does not close existing
 patches or replace an existing Rustel session's score.
 
-Options: `-Status` checks connections; `-Web` also serves/opens Nightshade;
+Options: `-Status` checks connections; Nightshade is enabled by default (`-Web`
+is still accepted). `-NoWeb` disables it, and `-NoOpen` serves it and prints its
+URL without opening a browser;
 `-Score path.strudel` chooses the score for a new player; `-Silent` starts a new
 player without audio hardware; `-Build` explicitly rebuilds components (close the
 affected apps first). Build tools and platform dependencies must be installed.
@@ -39,16 +43,16 @@ From the workspace root:
 
 ```sh
 ./Setup.sh
-./"Start Music.sh"
-./"Start Music.sh" --web
-./"Start Music.sh" --score "/path with spaces/song.strudel"
-./"Start Music.sh" --status
-./"Start Music.sh" --stop
+./start_music.sh
+./start_music.sh --no-open
+./start_music.sh --score "/path with spaces/song.strudel"
+./start_music.sh --status
+./start_music.sh --stop
 ```
 
-macOS users can also double-click `Start Music.command`. Both wrappers use
+macOS users can also double-click `start_music.command`. Both wrappers use
 Python 3.9+ and need no PowerShell. `sh Setup.sh` and
-`sh "Start Music.sh"` work if a download did not preserve executable permissions.
+`sh start_music.sh` work if a download did not preserve executable permissions.
 
 Install Git, Python 3 with development headers, the Rust toolchain required by
 Rustel, CMake and a native C/C++ toolchain first. On macOS, install the Xcode
@@ -59,11 +63,13 @@ audio and the desktop UI. Follow the platform lists in
 [Linux dependency list](../BespokeSynth/azure-pipelines.yml) supplies the native
 packages. The launcher does not run sudo or install system packages.
 
-`--web` additionally needs Node.js/npm, rustup and Trunk (`cargo install trunk
+Nightshade (enabled by default) additionally needs Node.js/npm, rustup and Trunk (`cargo install trunk
 --locked`). The launcher installs its pinned local wasm-bindgen CLI, adds the
 WASM Rust target, runs `npm ci` if needed, and builds the worker/CSS/web bundle.
 It serves only on loopback. Use `--no-open` to print the URL without opening a
-browser, or `--web-port 18766` to choose another port. An unrelated server on the
+browser, `--no-web` to skip Nightshade entirely, or `--web-port 18766` to choose
+another port. Every normal launch opens the printed music-view URL, even when
+reusing the server. An unrelated server on the
 chosen port is left alone and reported as a conflict.
 
 Native builds use `BespokeSynth/ignore/music-build-posix`, separate from the
@@ -357,7 +363,7 @@ Build the updated hub, Rustel and Bespoke using the existing build instructions.
 Start a fresh Rustel process with lane export enabled (Windows):
 
 ```powershell
-.\music-link\start.ps1 -LaneAudio
+.\music-link\start_music.ps1 -LaneAudio
 ```
 
 Use `-LaneAudio -Silent` to render through Rustel's silent output while all
@@ -402,7 +408,7 @@ memory is reclaimed when both processes release it; no PCM recordings are saved.
 The node remembers its selected session/lane in Bespoke's saved state; a new
 Rustel process has a new session ID and must be selected again.
 
-On macOS/Linux, use `./"Start Music.sh"` (export is enabled by default), or
+On macOS/Linux, use `./start_music.sh` (export is enabled by default), or
 set `RUSTEL_MUSIC_LINK=1 RUSTEL_LANE_AUDIO=1` for a manual launch. POSIX objects
 are created exclusively with mode 0600, use short names compatible with macOS,
 and are unlinked on normal producer destruction. Existing readers may finish

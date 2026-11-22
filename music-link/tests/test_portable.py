@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "music-link"))
@@ -25,7 +27,7 @@ def module(name, path):
 
 
 setup = module("portable_setup", ROOT / "vendor/setup.py")
-start = module("portable_start", ROOT / "music-link/start.py")
+start = module("portable_start", ROOT / "music-link/start_music.py")
 
 
 class SetupTests(unittest.TestCase):
@@ -90,6 +92,44 @@ class SetupTests(unittest.TestCase):
     def test_manifest_path_cannot_escape_source_copy_directory(self):
         with self.assertRaisesRegex(RuntimeError, "escapes workspace"):
             setup.checked_path(self.root, "../outside")
+
+
+class ViewerStartupTests(unittest.TestCase):
+    def test_relaunch_reopens_browser_and_prints_url_despite_old_saved_flag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "music-link").mkdir()
+            launcher = start.Launcher(root)
+            launcher.state["web_opened"] = True  # Old launcher state must not suppress opening.
+            args = SimpleNamespace(build=False, web_port=18765, no_open=False)
+            output = io.StringIO()
+            with mock.patch.object(start, "build_viewer"), \
+                 mock.patch.object(start.HTTP, "open", side_effect=lambda *a, **k: io.BytesIO(b"<title>Nightshade Viewer</title>")), \
+                 mock.patch.object(start.webbrowser, "open", return_value=True) as browser, \
+                 contextlib.redirect_stdout(output):
+                launcher.start_web(args)
+                launcher.start_web(args)
+            self.assertEqual(browser.call_count, 2)
+            browser.assert_called_with("http://127.0.0.1:18765/?music=1")
+            self.assertEqual(output.getvalue().count("Nightshade viewer: http://127.0.0.1:18765/?music=1"), 2)
+
+    def test_missing_server_is_started_and_no_open_still_prints_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "music-link").mkdir()
+            launcher = start.Launcher(root)
+            args = SimpleNamespace(build=False, web_port=18766, no_open=True)
+            output = io.StringIO()
+            with mock.patch.object(start, "build_viewer"), \
+                 mock.patch.object(start.HTTP, "open", side_effect=start.urllib.error.URLError("refused")), \
+                 mock.patch.object(launcher, "ensure") as server, \
+                 mock.patch.object(start, "page_ready", return_value=True), \
+                 mock.patch.object(start.webbrowser, "open") as browser, \
+                 contextlib.redirect_stdout(output):
+                launcher.start_web(args)
+            server.assert_called_once()
+            browser.assert_not_called()
+            self.assertIn("http://127.0.0.1:18766/?music=1", output.getvalue())
 
 
 @unittest.skipUnless(sys.platform in ("linux", "darwin"), "POSIX process identity")

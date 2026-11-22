@@ -22,16 +22,16 @@ jobs:
       - name: Check shell entry points
         if: runner.os != 'Windows'
         run: |
-          for script in Setup.sh "Start Music.sh" "Start Music.command"; do
+          for script in Setup.sh start_music.sh "start_music.command"; do
             test -x "$script"
             sh -n "$script"
           done
-          sh "Start Music.sh" --help
+          sh start_music.sh --help
       - name: Check Windows PowerShell entry points
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          foreach ($file in @('Setup.ps1', 'vendor/apply.ps1', 'music-link/start.ps1')) {
+          foreach ($file in @('Setup.ps1', 'vendor/apply.ps1', 'music-link/start_music.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
