@@ -248,7 +248,7 @@ pub fn MusicPanel(
             <div class="music-hud music-top">
                 <div>
                     <div class="music-eyebrow">"● LIVE PATTERN FIELD"</div>
-                    <div class="music-title">"Music in motion."</div>
+                    <div class="music-title">"bespoke_rustel"</div>
                     <div class="music-help" role="status">{move || state.render_error.get()}</div>
                     <div class="music-help">{move || state.music_status.get()}</div>
                     <div class="music-help">{move || state.music_control_status.get()}</div>

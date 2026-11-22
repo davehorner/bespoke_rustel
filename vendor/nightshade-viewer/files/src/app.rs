@@ -22,6 +22,11 @@ use crate::state::ViewerState;
 /// when the browser has no WebGPU.
 #[component]
 pub fn App() -> impl IntoView {
+    if crate::music::enabled() {
+        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+            document.set_title("bespoke_rustel");
+        }
+    }
     let gpu = webgpu_supported();
     if !gpu && !crate::music::enabled() {
         return unsupported().into_any();

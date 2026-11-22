@@ -209,7 +209,7 @@
         },
         {
           "path": "src/app.rs",
-          "sha256": "bb337cc1ab69de3281dccd9f583a3951f5d332d611b7e912479e2acfb600a94e"
+          "sha256": "a8905e17496fd32cab7ec03f81d6c6bf3c3ced0b20ab14f112cce2f80ae38d5b"
         },
         {
           "path": "src/bridge.rs",
@@ -221,7 +221,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "9176b2b58c16f3478b76d1477124a8e31d1b7877279d80d008d73a12aab8a430"
+          "sha256": "ce767de45177609ef02e45800cf6699b3d736e5aaa13df14d7ddb5f10f408144"
         },
         {
           "path": "src/music_canvas.rs",
@@ -256,8 +256,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "de8f0a04fe38a711bcefc1da8e9d428f5731288b0aa36e072143e9ba3e370062",
-      "result_tree": "fea806245981714bb008bb077c338dda81d4bc4b"
+      "patch_sha256": "e933bd565074bb22435887bac21fcbf8d45f7acaa7098fac431be6e09b8f3ffb",
+      "result_tree": "0db36d57dc12de21911f69ca28fd45158651c833"
     },
     {
       "name": "hearsay",

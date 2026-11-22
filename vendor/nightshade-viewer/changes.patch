@@ -460,14 +460,19 @@ index 5bad1b903e894d762956c9b8ee6884934e516347..f73ab0301b09968e84fdd58e0b60892f
 -});
 +}).catch(report);
 diff --git a/src/app.rs b/src/app.rs
-index 429d2f785165bd27107d73032645e2ae2beb7b94..018eaf0c78ace22936d2ffef3befe3231a4fff2c 100644
+index 429d2f785165bd27107d73032645e2ae2beb7b94..d45f27524704c5e644b38144dbf8d8dab93baf16 100644
 --- a/src/app.rs
 +++ b/src/app.rs
-@@ -22,12 +22,19 @@ use crate::state::ViewerState;
+@@ -22,12 +22,24 @@ use crate::state::ViewerState;
  /// when the browser has no WebGPU.
  #[component]
  pub fn App() -> impl IntoView {
 -    if !webgpu_supported() {
++    if crate::music::enabled() {
++        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
++            document.set_title("bespoke_rustel");
++        }
++    }
 +    let gpu = webgpu_supported();
 +    if !gpu && !crate::music::enabled() {
          return unsupported().into_any();
@@ -484,7 +489,7 @@ index 429d2f785165bd27107d73032645e2ae2beb7b94..018eaf0c78ace22936d2ffef3befe323
  
      let _ = window_event_listener(leptos::ev::keydown, move |event| {
          if typing_in_field(&event) {
-@@ -46,7 +53,7 @@ pub fn App() -> impl IntoView {
+@@ -46,7 +58,7 @@ pub fn App() -> impl IntoView {
      });
  
      view! {
@@ -493,7 +498,7 @@ index 429d2f785165bd27107d73032645e2ae2beb7b94..018eaf0c78ace22936d2ffef3befe323
          <Show when=move || !state.ui_hidden.get() fallback=|| ()>
              <Toolbar bridge state />
              <Hint state />
-@@ -59,6 +66,7 @@ pub fn App() -> impl IntoView {
+@@ -59,6 +71,7 @@ pub fn App() -> impl IntoView {
              <AddMenu bridge state />
          </Show>
          <Loader state />
@@ -569,7 +574,7 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..629ea47f37794277af9239710571b6033dfb677a
+index 0000000000000000000000000000000000000000..019348c9d98f60ffec85b60b41aaf7bad966dcfb
 --- /dev/null
 +++ b/src/music.rs
 @@ -0,0 +1,343 @@
@@ -823,7 +828,7 @@ index 0000000000000000000000000000000000000000..629ea47f37794277af9239710571b603
 +            <div class="music-hud music-top">
 +                <div>
 +                    <div class="music-eyebrow">"● LIVE PATTERN FIELD"</div>
-+                    <div class="music-title">"Music in motion."</div>
++                    <div class="music-title">"bespoke_rustel"</div>
 +                    <div class="music-help" role="status">{move || state.render_error.get()}</div>
 +                    <div class="music-help">{move || state.music_status.get()}</div>
 +                    <div class="music-help">{move || state.music_control_status.get()}</div>
