@@ -136,6 +136,10 @@ pub struct MorphInfo {
 pub enum ClientMessage {
     MusicView {
         #[serde(default)]
+        rests: bool,
+        #[serde(default)]
+        selected: Option<(String, String)>,
+        #[serde(default)]
         expanded: Vec<String>,
         orbit: bool,
         ghosts: bool,

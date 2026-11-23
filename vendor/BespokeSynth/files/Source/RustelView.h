@@ -45,6 +45,7 @@ private:
       float original{ 48 }, pitch{ 48 }, gain{ 0.8f };
       std::string part;
       std::string note;
+      bool rest{ false };
       std::array<int, 3> partColor{};
       std::vector<std::pair<int, int>> context;
       std::array<double, 4> controls{};
@@ -98,6 +99,8 @@ private:
    Checkbox* mOrbitCheckbox{ nullptr };
    Checkbox* mSoloCheckbox{ nullptr };
    Checkbox* mPartsCheckbox{ nullptr };
+   Checkbox* mRestsCheckbox{ nullptr };
+   bool mShowRests{ false };
    bool mShowParts{ false };
    ClickButton* mResetCamera{ nullptr };
    bool mCameraDragging{ false }, mPanDragging{ false };

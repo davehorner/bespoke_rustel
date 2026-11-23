@@ -25,6 +25,7 @@ struct LaneScene {
     heading: Option<(Entity, String)>,
     tint: Option<[f32; 3]>,
     inscription: Option<(Entity, String)>,
+    selection: Option<[Entity; 4]>,
 }
 
 pub struct MusicScene {
@@ -41,6 +42,8 @@ pub struct MusicScene {
     lane_filter: String,
     orbit: bool,
     ghosts: bool,
+    rests: bool,
+    selected: Option<(String, String)>,
     framed_lanes: usize,
 }
 impl Default for MusicScene {
@@ -59,6 +62,8 @@ impl Default for MusicScene {
             lane_filter: String::new(),
             orbit: false,
             ghosts: false,
+            rests: false,
+            selected: None,
             framed_lanes: 0,
         }
     }
@@ -237,10 +242,12 @@ impl MusicScene {
     pub fn paused(&self) -> bool {
         self.active() && self.mode != 0
     }
-    pub fn configure(&mut self, orbit: bool, ghosts: bool, mode: u8, lane: String, expanded: Vec<String>) {
+    pub fn configure(&mut self, orbit: bool, ghosts: bool, mode: u8, lane: String, expanded: Vec<String>, rests: bool, selected: Option<(String, String)>) {
+        self.rests = rests;
+        self.selected = selected;
         self.lane_filter = lane;
         self.expanded = expanded;
-        if let Some(snapshot) = &self.snapshot { self.projection = Some(snapshot.visual_lanes(&self.expanded, &self.lane_filter)); }
+        if let Some(snapshot) = &self.snapshot { self.projection = Some(snapshot.with_rests(self.rests).visual_lanes(&self.expanded, &self.lane_filter)); }
         self.mode = mode.min(8);
         self.orbit = orbit;
         self.ghosts = ghosts;
@@ -308,7 +315,7 @@ impl MusicScene {
                 && e.original_pitch
                     .is_none_or(|p| p.is_finite() && (-256.0..=256.0).contains(&p))
         });
-        self.projection = Some(snapshot.visual_lanes(&self.expanded, &self.lane_filter));
+        self.projection = Some(snapshot.with_rests(self.rests).visual_lanes(&self.expanded, &self.lane_filter));
         self.snapshot = Some(snapshot);
     }
     pub fn update(&mut self, world: &mut World) {
@@ -361,6 +368,11 @@ impl MusicScene {
             material(world, halo, format!("MusicHalo{i}"), color, 1.4);
             let heading = spawn_3d_billboard_text_with_properties(world, "", Vec3::zeros(), TextProperties { font_size: 16.0, ..Default::default() });
             self.lanes.push(LaneScene {
+                selection: Some(std::array::from_fn(|side| {
+                    let edge = spawn_cube_at(world, Vec3::zeros());
+                    material(world, edge, format!("MusicSelected{i}_{side}"), [1.0,0.76,0.2], 1.0);
+                    edge
+                })),
                 heading: Some((heading, String::new())),
                 inscription: Some((surface_label(world), String::new())),
                 rail: Some(rail),
@@ -399,7 +411,7 @@ impl MusicScene {
                     &e.lane == id && e.cycle + e.duration > cycle - 1.5 && e.cycle < cycle + 2.0
                 }) {
                     let elapsed = ((cycle - event.cycle) / snapshot.cps.max(0.001)) as f32;
-                    let hit = if elapsed >= 0.0 {
+                    let hit = if elapsed >= 0.0 && !event.rest {
                         (-elapsed * 7.0).exp()
                     } else {
                         0.0
@@ -438,7 +450,7 @@ impl MusicScene {
                             lane.notes.push((faces, String::new()));
                         }
                         let entity = lane.blocks[used];
-                        let tint = if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
+                        let tint = if event.rest { [0.25,0.3,0.38] } else if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
                         if lane.colors[used] != tint {
                             // Mutate this pool slot's material; never allocate per event/frame.
                             nightshade::ecs::world::commands::set_material_with_textures(world, entity, Material {
@@ -483,7 +495,7 @@ impl MusicScene {
                         }
                         label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
                         let (notes, previous) = &mut lane.notes[used];
-                        let glyph = protocol::music_link_types::note_glyph(event.pitch);
+                        let glyph = event.face_label();
                         let changed = *previous != glyph;
                         let faces = crate::music_text::block_faces([length, thickness, 0.22 + hit * 0.15]);
                         for (note, face) in notes.iter().zip(faces) {
@@ -546,6 +558,22 @@ impl MusicScene {
                     .unwrap_or_else(|| Vec2::new(text.len().max(1) as f32 * 0.1, 0.16));
                 let scale = if index < count { crate::music_text::face_text_scale(4.0,0.65,bounds.x,bounds.y) } else { 0.0 };
                 pose(world, *entity, Vec3::new(rail_start + 2.0,-0.045,z), Vec3::repeat(scale));
+            }
+            if let Some(edges) = lane.selection {
+                let selected = visible.get(index).is_some_and(|row| self.selected.as_ref().is_some_and(|(parent,part)| {
+                    if let Some((root, name)) = protocol::music_link_types::virtual_parent(&row.id) { root == parent && name == part }
+                    else { row.id == *parent && !visible.iter().any(|child| protocol::music_link_types::virtual_parent(&child.id).is_some_and(|(root,name)| root == parent && name == part)) }
+                }));
+                let length = rail_end-rail_start;
+                for (side, edge) in edges.into_iter().enumerate() {
+                    let (position,size) = match side {
+                        0 => (Vec3::new((rail_start+rail_end)*0.5,0.005,z-0.48),Vec3::new(length,0.015,0.025)),
+                        1 => (Vec3::new((rail_start+rail_end)*0.5,0.005,z+0.48),Vec3::new(length,0.015,0.025)),
+                        2 => (Vec3::new(rail_start,0.005,z),Vec3::new(0.025,0.015,0.96)),
+                        _ => (Vec3::new(rail_end,0.005,z),Vec3::new(0.025,0.015,0.96)),
+                    };
+                    pose(world,edge,position,if selected {size} else {Vec3::zeros()});
+                }
             }
             let visible = index < count;
             if let Some(rail) = lane.rail {

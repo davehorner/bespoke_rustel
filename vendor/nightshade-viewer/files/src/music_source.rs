@@ -114,6 +114,7 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
     let mut index = 0;
     for (a, b, class) in tokens(&source) {
         let identifier = source[a..b].to_owned();
+        let clicked_name = StoredValue::new(identifier.clone());
         let tint = Memo::new(move |_| {
             if class != "plain" && class != "function" { return String::new(); }
             state.music.with(|snapshot| snapshot.as_ref().and_then(|s|
@@ -126,7 +127,25 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
             let character = index;
             index += 1;
             parts.push(view! {
-                <span class=format!("music-token-{class}") data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
+                <span class=format!("music-token-{class}") on:click=move |event| {
+                    let offset = offsets.with_untracked(|o| o.get(character).copied().flatten());
+                    let target = state.music.with_untracked(|s| {
+                        let s = s.as_ref()?;
+                        let binding = s.bindings.iter().find(|b| {
+                            ((class == "plain" || class == "function") && clicked_name.with_value(|name| name == &b.name))
+                                || offset.is_some_and(|at| b.definition_from <= at && at < b.definition_to)
+                        })?;
+                        let preferred = focus_lane.get_value();
+                        let parent = s.lanes.iter().filter(|l| l.parts.iter().any(|p| p.name == binding.name))
+                            .min_by_key(|l| l.id != preferred)
+                            .or_else(|| s.lanes.iter().find(|l| l.id == preferred))?;
+                        Some((parent.id.clone(), binding.name.clone()))
+                    });
+                    if let Some((lane, part)) = target {
+                        event.stop_propagation();
+                        crate::music::reveal_source(state, &lane, &part);
+                    }
+                } data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
                     let offset = offsets.with(|o| o.get(character).copied().flatten());
                     if offset.is_some_and(|offset| focus_range.with(|range| range.is_some_and(|(a,b)| a <= offset && offset < b))) {
                         format!("{}background:#ffe08a55;outline:1px solid #ffe08a", tint.get())

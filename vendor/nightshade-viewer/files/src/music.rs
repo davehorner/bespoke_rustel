@@ -234,6 +234,8 @@ pub fn MusicPanel(
                 send(
                     bridge,
                     &ClientMessage::MusicView {
+                        rests: state.music_rests.get_untracked(),
+                        selected: state.music_source_focus.get_untracked().map(|f| (f.0, f.1)),
                         expanded: state.music_expanded.get_untracked(),
                         orbit: orbit.get_untracked(),
                         ghosts: false,
@@ -248,6 +250,8 @@ pub fn MusicPanel(
         state.music_mode.get();
         state.music_lane.get();
         state.music_expanded.get();
+        state.music_rests.get();
+        state.music_source_focus.get();
         configure();
     });
     view! {
@@ -287,6 +291,11 @@ pub fn MusicPanel(
                     </select>
                 </div>
                 <div class="music-controls">
+                    <label style="font:11px monospace;padding:9px" title="Show gaps between event gates in each part; no inferred markers at the edges of the available stream.">
+                        <input type="checkbox" prop:checked=move || state.music_rests.get()
+                            on:change=move |e| state.music_rests.set(event_target_checked(&e)) />
+                        " rests (~)"
+                    </label>
                     <select class="music-select" aria-label="Music view" prop:value=move || state.music_mode.get().to_string()
                         on:change=move |event| state.music_mode.set(event_target_value(&event).parse().unwrap_or(0))>
                         <option value="0">"Stage (3D)"</option><option value="1">"Piano roll"</option>

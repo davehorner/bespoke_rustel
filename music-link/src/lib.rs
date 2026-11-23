@@ -68,6 +68,7 @@ mod named_part_tests {
         let part = NamedPart { name: "moon".into(), color: named_color("moon") };
         let lane = |id: &str| Lane { id: id.into(), source: "$: arrangement".into(), parts: vec![part.clone()], ..Default::default() };
         let event = |lane: &str, part: &str, id| Event { lane: lane.into(), part: part.into(), id,
+            block_label: String::new(), rest: false,
             part_color: named_color(part), cycle: 0.0, duration: 1.0, original_pitch: None,
             pitch: None, sound: "bd".into(), gain: 1.0, context: vec![], controls: Default::default() };
         let source = Snapshot { lanes: vec![lane("#1"), lane("#2")],
@@ -175,6 +176,12 @@ pub fn virtual_parent(id: &str) -> Option<(&str, &str)> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
+    /// Producer-resolved sound, mini token and controls for block faces.
+    #[serde(default)]
+    pub block_label: String,
+    /// Visual-only silence marker, never sent to an audio renderer.
+    #[serde(default)]
+    pub rest: bool,
     /// Top-level const pattern binding, retained through composition.
     #[serde(default)]
     pub part: String,
@@ -192,6 +199,76 @@ pub struct Event {
     pub pitch: Option<f64>,
     pub sound: String,
     pub gain: f64,
+}
+
+impl Event {
+    pub fn face_label(&self) -> String {
+        if self.rest { return "~".into(); }
+        if !self.block_label.is_empty() { return self.block_label.clone(); }
+        self.describe("")
+    }
+
+    /// Resolve labels from accepted controls and the exact authored mini leaf.
+    /// Names are not guessed from const names or a fixed instrument list.
+    pub fn describe(&self, source: &str) -> String {
+        if self.rest { return "~".into(); }
+        let mut sound = self.sound.clone();
+        let mut structure = String::new();
+        for &(from, to) in &self.context {
+            let Some((role, token)) = source_token(source, from, to) else { continue; };
+            // Mini context also includes operator arguments (the 8 in hh*8).
+            // Only the leaf matching the resolved sound may name that sound.
+            if (role == "s" || role == "sound") && !self.sound.is_empty()
+                && token.strip_prefix(&self.sound).is_some_and(|suffix| suffix.chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_')) {
+                sound = token;
+            }
+            else if role == "struct" && structure.is_empty() { structure = token; }
+        }
+        let mut text = if self.pitch.is_some() {
+            let note = note_glyph(self.pitch);
+            if sound.is_empty() { note } else { format!("{sound} / {note}") }
+        } else if sound.is_empty() { "x".into() } else { sound };
+        if !structure.is_empty() { text.push_str(&format!(" / struct {structure}")); }
+        if let Some(gain) = self.controls.get("gain").filter(|v| v.is_finite()) {
+            let gain = format!("{gain:.3}").trim_end_matches('0').trim_end_matches('.').to_owned();
+            text.push_str(&format!(".gain({gain})"));
+        }
+        text
+    }
+}
+
+// Locate the literal containing a context range, skipping comments and escaped
+// quotes. Include its attached mini postfix (hh*8), not an unrelated next leaf.
+fn source_token(source: &str, from: usize, to: usize) -> Option<(String, String)> {
+    if from >= to || to > source.len() || !source.is_char_boundary(from) || !source.is_char_boundary(to) { return None; }
+    let bytes = source.as_bytes();
+    let mut at = 0;
+    while at < source.len() {
+        if source[at..].starts_with("//") { at += source[at..].find('\n').unwrap_or(source.len()-at); continue; }
+        if source[at..].starts_with("/*") { at += source[at+2..].find("*/").map_or(source.len()-at, |n| n+4); continue; }
+        let quote = bytes[at];
+        if !matches!(quote, b'\'' | b'"' | b'`') { at += source[at..].chars().next()?.len_utf8(); continue; }
+        let begin = at;
+        at += 1;
+        while at < source.len() && bytes[at] != quote {
+            if bytes[at] == b'\\' { at += 1; }
+            if at < source.len() { at += source[at..].chars().next()?.len_utf8(); }
+        }
+        let end = at;
+        if at < source.len() { at += 1; }
+        if from <= begin || to > end { continue; }
+        if source[begin+1..from].trim_end().chars().last().is_some_and(|c| matches!(c, '*' | '!' | '/' | '@')) { return None; }
+        let prefix = source[..begin].trim_end().strip_suffix('(')?.trim_end();
+        let role = prefix.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').collect::<String>().chars().rev().collect::<String>();
+        let mut finish = to;
+        if matches!(bytes.get(finish), Some(b'*' | b'!' | b'/' | b'@')) {
+            finish += 1;
+            while finish < end && (bytes[finish].is_ascii_digit() || bytes[finish] == b'.') { finish += 1; }
+        }
+        let token = source[from..finish].replace("\\\r\n", "").replace("\\\n", "").split_whitespace().collect::<Vec<_>>().join(" ");
+        return Some((role, token));
+    }
+    None
 }
 
 /// Scientific pitch name for timeline glyphs. Unpitched samples are hits (`x`),
@@ -242,9 +319,54 @@ pub struct Snapshot {
     pub cps: f64,
     pub lanes: Vec<Lane>,
     pub events: Vec<Event>,
+    /// Internal gaps between accepted events, grouped by lane and named part.
+    /// These carry no audio or source context and are opt-in in each viewer.
+    #[serde(default)]
+    pub rests: Vec<Event>,
 }
 
 impl Snapshot {
+    pub fn inferred_rests(&self) -> Vec<Event> {
+        let mut groups = std::collections::BTreeMap::<(&str, &str), Vec<&Event>>::new();
+        for event in &self.events {
+            if !event.rest && event.cycle.is_finite() && event.duration.is_finite() && event.duration > 0.0 {
+                groups.entry((&event.lane, &event.part)).or_default().push(event);
+            }
+        }
+        let mut rests = Vec::new();
+        for events in groups.values_mut() {
+            events.sort_by(|a,b| a.cycle.total_cmp(&b.cycle));
+            let mut end = events[0].cycle + events[0].duration;
+            for next in events.iter().skip(1) {
+                if next.cycle - end > 1e-7 && rests.len() < 512 {
+                    let mut rest = (*next).clone();
+                    rest.id = 0;
+                    rest.cycle = end;
+                    rest.duration = next.cycle - end;
+                    rest.rest = true;
+                    rest.block_label = "~".into();
+                    rest.pitch = None;
+                    rest.original_pitch = None;
+                    rest.sound.clear();
+                    rest.gain = 0.0;
+                    rest.context.clear();
+                    rest.controls.clear();
+                    rests.push(rest);
+                }
+                end = end.max(next.cycle + next.duration);
+            }
+        }
+        rests
+    }
+
+    /// Add optional visual silence before projecting virtual parts.
+    pub fn with_rests(&self, show: bool) -> Self {
+        let mut result = self.clone();
+        if show { result.events.extend(self.rests.iter().cloned()); }
+        result.rests.clear();
+        result
+    }
+
     /// A visual-only projection. Commands always use the original snapshot IDs.
     /// Parent rows hold unnamed events when expanded; each named child appears
     /// exactly once. Length-prefixed IDs scope identical names to their parents.

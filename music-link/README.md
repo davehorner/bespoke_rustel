@@ -380,6 +380,23 @@ their original source bytes, including Windows CRLF endings and indentation.
 This mapping is produced by Rustel for both viewers; after updating Rustel,
 restart the player and reevaluate the score to replace older event positions.
 
+Block faces use resolved sound names rather than `x` for drum hits. Source-aware
+labels retain mini repetition (`hh*8`), the currently selected `.struct(...)`
+token, pitched notes and the resolved gain, for example `hh*8.gain(0.23)` or
+`gm_acoustic_guitar_nylon / C4 / struct x.gain(0.43)`. Names are derived from the
+running pattern and its source context, with no special cases for demo consts.
+Click a const definition in either source pane to select its part; the stage
+floor outline follows selection. Selecting a shared part retains the current
+parent lane when possible, and solo continues to address that parent lane.
+
+Enable **rests (~)** to show muted grey blocks between event gates in stage,
+piano roll and wordfall. This is off by default. These are inferred gaps for
+each lane/part, not authored `~` tokens: overlapping notes are merged, no gaps
+are guessed before the first or after the last available event, and effect tails
+may continue sounding. Rest markers have no source range and never enter audio
+or solo processing. Update/restart the music hub as well as Rustel and the native
+viewer, then refresh Nightshade, to use the new optional telemetry fields.
+
 Choose **control curves** in the view dropdown for per-lane gain, pan, cutoff and
 resonance. Dots are values resolved at scheduled note onsets; step lines connect
 those samples. Cutoff uses a logarithmic vertical scale. These are event control

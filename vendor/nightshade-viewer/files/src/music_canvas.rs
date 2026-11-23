@@ -128,7 +128,7 @@ pub fn MusicCanvas(state: ViewerState) -> impl IntoView {
                 return;
             }
             let lane = state.music_lane.get_untracked();
-            let snapshot = snapshot.visual_lanes(&state.music_expanded.get_untracked(), &lane);
+            let snapshot = snapshot.with_rests(state.music_rests.get_untracked()).visual_lanes(&state.music_expanded.get_untracked(), &lane);
             let cycle = snapshot.cycle + age * snapshot.cps;
             draw_events(
                 &context,
@@ -181,6 +181,7 @@ fn color(c: &Context, value: &str) {
     c.set_stroke_style_str(value);
 }
 fn event_color(event: &music_link::Event, fallback: &str) -> String {
+    if event.rest { return "#68788c".into(); }
     if event.part.is_empty() { return fallback.to_owned(); }
     let [r,g,b] = event.part_color;
     format!("#{r:02x}{g:02x}{b:02x}")
@@ -346,7 +347,7 @@ fn draw_events(
                 }
                 let height = 14.0;
                 c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
-                let glyph = music_link::note_glyph(event.pitch);
+                let glyph = event.face_label();
                 c.save();
                 c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
                 c.set_font("11px monospace");
@@ -365,12 +366,7 @@ fn draw_events(
                 let column = ((w - 90.0) / s.lanes.len().max(1) as f64).max(150.0);
                 let x = 45.0 + lane_index as f64 * column + pan.0;
                 let y = bottom - (event.cycle - cycle + 0.5) * 120.0 * zoom + pan.1;
-                let sound = if event.sound.is_empty() {
-                    "note"
-                } else {
-                    &event.sound
-                };
-                let _ = c.fill_text(&format!("{} {} {}", event.part, sound, music_link::note_glyph(event.pitch)), x, y);
+                let _ = c.fill_text(&format!("{} {}", event.part, event.face_label()), x, y);
             }
         }
     }
@@ -392,7 +388,7 @@ fn draw_radial(
     let mut low = 127.0_f64;
     let mut high = 0.0_f64;
     let visible = |e: &&music_link::Event| {
-        e.cycle.is_finite()
+        !e.rest && e.cycle.is_finite()
             && e.duration.is_finite()
             && e.cycle + e.duration >= cycle - 1.5
             && e.cycle <= cycle + 0.5

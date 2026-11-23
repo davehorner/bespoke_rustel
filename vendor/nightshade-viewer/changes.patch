@@ -407,7 +407,7 @@ index 5cdeca9b317e7fadbb44bf4688babd81ffd63f6c..37060dccae038b0f23990ba750103699
  serde_json = { version = "1", optional = true }
  enum2schema = { version = "0.1", optional = true }
 diff --git a/protocol/src/lib.rs b/protocol/src/lib.rs
-index 398fae97010345175d36a1c3d1725d6c2e984a95..97714f0e832a70fde372a9139775c3e7720ff2a5 100644
+index 398fae97010345175d36a1c3d1725d6c2e984a95..bb03178cf103f302c9427f622a6ecb3cd31c15d5 100644
 --- a/protocol/src/lib.rs
 +++ b/protocol/src/lib.rs
 @@ -1,3 +1,4 @@
@@ -415,11 +415,15 @@ index 398fae97010345175d36a1c3d1725d6c2e984a95..97714f0e832a70fde372a9139775c3e7
  use serde::{Deserialize, Serialize};
  
  #[cfg(feature = "agent")]
-@@ -133,6 +134,18 @@ pub struct MorphInfo {
+@@ -133,6 +134,22 @@ pub struct MorphInfo {
  #[derive(Clone, Debug, Serialize, Deserialize)]
  #[cfg_attr(feature = "agent", derive(enum2schema::Schema))]
  pub enum ClientMessage {
 +    MusicView {
++        #[serde(default)]
++        rests: bool,
++        #[serde(default)]
++        selected: Option<(String, String)>,
 +        #[serde(default)]
 +        expanded: Vec<String>,
 +        orbit: bool,
@@ -434,7 +438,7 @@ index 398fae97010345175d36a1c3d1725d6c2e984a95..97714f0e832a70fde372a9139775c3e7
      /// Sent once with the `OffscreenCanvas` in the transfer list.
      Init {
          width: f32,
-@@ -345,6 +358,9 @@ pub struct PolyhavenEntry {
+@@ -345,6 +362,9 @@ pub struct PolyhavenEntry {
  /// Worker to page.
  #[derive(Clone, Serialize, Deserialize)]
  pub enum WorkerMessage {
@@ -577,10 +581,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd45cbaa64b
+index 0000000000000000000000000000000000000000..909a06d0555f28484059e354d77eca7637fa7ef5
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,405 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -817,6 +821,8 @@ index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd4
 +                send(
 +                    bridge,
 +                    &ClientMessage::MusicView {
++                        rests: state.music_rests.get_untracked(),
++                        selected: state.music_source_focus.get_untracked().map(|f| (f.0, f.1)),
 +                        expanded: state.music_expanded.get_untracked(),
 +                        orbit: orbit.get_untracked(),
 +                        ghosts: false,
@@ -831,6 +837,8 @@ index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd4
 +        state.music_mode.get();
 +        state.music_lane.get();
 +        state.music_expanded.get();
++        state.music_rests.get();
++        state.music_source_focus.get();
 +        configure();
 +    });
 +    view! {
@@ -870,6 +878,11 @@ index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd4
 +                    </select>
 +                </div>
 +                <div class="music-controls">
++                    <label style="font:11px monospace;padding:9px" title="Show gaps between event gates in each part; no inferred markers at the edges of the available stream.">
++                        <input type="checkbox" prop:checked=move || state.music_rests.get()
++                            on:change=move |e| state.music_rests.set(event_target_checked(&e)) />
++                        " rests (~)"
++                    </label>
 +                    <select class="music-select" aria-label="Music view" prop:value=move || state.music_mode.get().to_string()
 +                        on:change=move |event| state.music_mode.set(event_target_value(&event).parse().unwrap_or(0))>
 +                        <option value="0">"Stage (3D)"</option><option value="1">"Piano roll"</option>
@@ -979,10 +992,10 @@ index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd4
 +}
 diff --git a/src/music_canvas.rs b/src/music_canvas.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2e6f85886
+index 0000000000000000000000000000000000000000..70b5540d84949059bf7f22c75cea791a1054e90e
 --- /dev/null
 +++ b/src/music_canvas.rs
-@@ -0,0 +1,663 @@
+@@ -0,0 +1,659 @@
 +//! Flat views stay on the page thread so a stopped GPU worker cannot stop them.
 +use crate::state::ViewerState;
 +use leptos::{html, prelude::*};
@@ -1113,7 +1126,7 @@ index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2
 +                return;
 +            }
 +            let lane = state.music_lane.get_untracked();
-+            let snapshot = snapshot.visual_lanes(&state.music_expanded.get_untracked(), &lane);
++            let snapshot = snapshot.with_rests(state.music_rests.get_untracked()).visual_lanes(&state.music_expanded.get_untracked(), &lane);
 +            let cycle = snapshot.cycle + age * snapshot.cps;
 +            draw_events(
 +                &context,
@@ -1166,6 +1179,7 @@ index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2
 +    c.set_stroke_style_str(value);
 +}
 +fn event_color(event: &music_link::Event, fallback: &str) -> String {
++    if event.rest { return "#68788c".into(); }
 +    if event.part.is_empty() { return fallback.to_owned(); }
 +    let [r,g,b] = event.part_color;
 +    format!("#{r:02x}{g:02x}{b:02x}")
@@ -1331,7 +1345,7 @@ index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2
 +                }
 +                let height = 14.0;
 +                c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
-+                let glyph = music_link::note_glyph(event.pitch);
++                let glyph = event.face_label();
 +                c.save();
 +                c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
 +                c.set_font("11px monospace");
@@ -1350,12 +1364,7 @@ index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2
 +                let column = ((w - 90.0) / s.lanes.len().max(1) as f64).max(150.0);
 +                let x = 45.0 + lane_index as f64 * column + pan.0;
 +                let y = bottom - (event.cycle - cycle + 0.5) * 120.0 * zoom + pan.1;
-+                let sound = if event.sound.is_empty() {
-+                    "note"
-+                } else {
-+                    &event.sound
-+                };
-+                let _ = c.fill_text(&format!("{} {} {}", event.part, sound, music_link::note_glyph(event.pitch)), x, y);
++                let _ = c.fill_text(&format!("{} {}", event.part, event.face_label()), x, y);
 +            }
 +        }
 +    }
@@ -1377,7 +1386,7 @@ index 0000000000000000000000000000000000000000..3be2256f22a5c1aa6551dba1c24afaa2
 +    let mut low = 127.0_f64;
 +    let mut high = 0.0_f64;
 +    let visible = |e: &&music_link::Event| {
-+        e.cycle.is_finite()
++        !e.rest && e.cycle.is_finite()
 +            && e.duration.is_finite()
 +            && e.cycle + e.duration >= cycle - 1.5
 +            && e.cycle <= cycle + 0.5
@@ -1692,10 +1701,10 @@ index 0000000000000000000000000000000000000000..74324c16b5fd439f20c01ffd7c4b7a9b
 +}
 diff --git a/src/music_source.rs b/src/music_source.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f90d7f6e573c3e3ebc7e74c3128797bcb13eecca
+index 0000000000000000000000000000000000000000..37dc7ad7447d9c412b4893cf00dd5e81f957e21f
 --- /dev/null
 +++ b/src/music_source.rs
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,186 @@
 +//! Source offsets stay in UTF-8 bytes, as published by Rustel.
 +use crate::state::ViewerState;
 +use leptos::prelude::*;
@@ -1812,6 +1821,7 @@ index 0000000000000000000000000000000000000000..f90d7f6e573c3e3ebc7e74c3128797bc
 +    let mut index = 0;
 +    for (a, b, class) in tokens(&source) {
 +        let identifier = source[a..b].to_owned();
++        let clicked_name = StoredValue::new(identifier.clone());
 +        let tint = Memo::new(move |_| {
 +            if class != "plain" && class != "function" { return String::new(); }
 +            state.music.with(|snapshot| snapshot.as_ref().and_then(|s|
@@ -1824,7 +1834,25 @@ index 0000000000000000000000000000000000000000..f90d7f6e573c3e3ebc7e74c3128797bc
 +            let character = index;
 +            index += 1;
 +            parts.push(view! {
-+                <span class=format!("music-token-{class}") data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
++                <span class=format!("music-token-{class}") on:click=move |event| {
++                    let offset = offsets.with_untracked(|o| o.get(character).copied().flatten());
++                    let target = state.music.with_untracked(|s| {
++                        let s = s.as_ref()?;
++                        let binding = s.bindings.iter().find(|b| {
++                            ((class == "plain" || class == "function") && clicked_name.with_value(|name| name == &b.name))
++                                || offset.is_some_and(|at| b.definition_from <= at && at < b.definition_to)
++                        })?;
++                        let preferred = focus_lane.get_value();
++                        let parent = s.lanes.iter().filter(|l| l.parts.iter().any(|p| p.name == binding.name))
++                            .min_by_key(|l| l.id != preferred)
++                            .or_else(|| s.lanes.iter().find(|l| l.id == preferred))?;
++                        Some((parent.id.clone(), binding.name.clone()))
++                    });
++                    if let Some((lane, part)) = target {
++                        event.stop_propagation();
++                        crate::music::reveal_source(state, &lane, &part);
++                    }
++                } data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
 +                    let offset = offsets.with(|o| o.get(character).copied().flatten());
 +                    if offset.is_some_and(|offset| focus_range.with(|range| range.is_some_and(|(a,b)| a <= offset && offset < b))) {
 +                        format!("{}background:#ffe08a55;outline:1px solid #ffe08a", tint.get())
@@ -1864,10 +1892,10 @@ index 0000000000000000000000000000000000000000..f90d7f6e573c3e3ebc7e74c3128797bc
 +    }
 +}
 diff --git a/src/state.rs b/src/state.rs
-index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..70cd303fdbe6b1a1c512a0c883f2891009cabcb6 100644
+index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..657f1f04eacdbc1634bf1d063e9cab5611955ad6 100644
 --- a/src/state.rs
 +++ b/src/state.rs
-@@ -32,6 +32,21 @@ pub struct Validation {
+@@ -32,6 +32,22 @@ pub struct Validation {
  /// component and closure without cloning.
  #[derive(Clone, Copy)]
  pub struct ViewerState {
@@ -1877,6 +1905,7 @@ index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..70cd303fdbe6b1a1c512a0c883f28910
 +    pub music_expanded: RwSignal<Vec<String>>,
 +    pub music_source_focus: RwSignal<Option<(String, String, u64)>>,
 +    pub music_ghosts: RwSignal<bool>,
++    pub music_rests: RwSignal<bool>,
 +    pub music_control_status: RwSignal<String>,
 +    pub music_audio: RwSignal<Option<music_link::AudioFrame>>,
 +    pub music_received: RwSignal<f64>,
@@ -1889,7 +1918,7 @@ index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..70cd303fdbe6b1a1c512a0c883f28910
      pub context: RwSignal<String>,
      pub adapter: RwSignal<String>,
      pub fps: RwSignal<f32>,
-@@ -81,6 +96,21 @@ pub struct ViewerState {
+@@ -81,6 +97,22 @@ pub struct ViewerState {
  impl ViewerState {
      pub fn new() -> Self {
          Self {
@@ -1899,6 +1928,7 @@ index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..70cd303fdbe6b1a1c512a0c883f28910
 +            music_expanded: RwSignal::new(Vec::new()),
 +            music_source_focus: RwSignal::new(None),
 +            music_ghosts: RwSignal::new(false),
++            music_rests: RwSignal::new(false),
 +            music_control_status: RwSignal::new(String::new()),
 +            music_audio: RwSignal::new(None),
 +            music_received: RwSignal::new(0.0),
@@ -1912,7 +1942,7 @@ index 884ae26c0d95cca19c8e48e16a2cc1421945c4ea..70cd303fdbe6b1a1c512a0c883f28910
              adapter: RwSignal::new(String::new()),
              fps: RwSignal::new(0.0),
 diff --git a/worker/src/lib.rs b/worker/src/lib.rs
-index 053fdb7b2d271078799eb0539b9150720397f4a1..7d776ff7eaf732d9f131bf62216adba6c1dc6399 100644
+index 053fdb7b2d271078799eb0539b9150720397f4a1..4a9ab0e6cb4d12ac2d77dd6870662ad9d003c98c 100644
 --- a/worker/src/lib.rs
 +++ b/worker/src/lib.rs
 @@ -1,6 +1,8 @@
@@ -1947,7 +1977,7 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..7d776ff7eaf732d9f131bf62216adba6
  /// (`ViewerAction`), so both drive the viewer through exactly the same code.
  pub(crate) fn apply_client_message(world: &mut World, viewer: &mut Viewer, message: ClientMessage) {
      match message {
-+        ClientMessage::MusicView { orbit, ghosts, mode, lane, expanded } => viewer.music.configure(orbit, ghosts, mode, lane, expanded),
++        ClientMessage::MusicView { orbit, ghosts, mode, lane, expanded, rests, selected } => viewer.music.configure(orbit, ghosts, mode, lane, expanded, rests, selected),
 +        ClientMessage::MusicSnapshot(snapshot) => viewer.music.receive(snapshot, world),
          ClientMessage::PointerMove { x, y } => {
              input_inject_cursor_moved(world, Vec2::new(x, y));
@@ -1977,10 +2007,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..7d776ff7eaf732d9f131bf62216adba6
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898a6d0ebe7
+index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666f13fc1d9
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,635 @@
+@@ -0,0 +1,663 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -2008,6 +2038,7 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +    heading: Option<(Entity, String)>,
 +    tint: Option<[f32; 3]>,
 +    inscription: Option<(Entity, String)>,
++    selection: Option<[Entity; 4]>,
 +}
 +
 +pub struct MusicScene {
@@ -2024,6 +2055,8 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +    lane_filter: String,
 +    orbit: bool,
 +    ghosts: bool,
++    rests: bool,
++    selected: Option<(String, String)>,
 +    framed_lanes: usize,
 +}
 +impl Default for MusicScene {
@@ -2042,6 +2075,8 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +            lane_filter: String::new(),
 +            orbit: false,
 +            ghosts: false,
++            rests: false,
++            selected: None,
 +            framed_lanes: 0,
 +        }
 +    }
@@ -2220,10 +2255,12 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +    pub fn paused(&self) -> bool {
 +        self.active() && self.mode != 0
 +    }
-+    pub fn configure(&mut self, orbit: bool, ghosts: bool, mode: u8, lane: String, expanded: Vec<String>) {
++    pub fn configure(&mut self, orbit: bool, ghosts: bool, mode: u8, lane: String, expanded: Vec<String>, rests: bool, selected: Option<(String, String)>) {
++        self.rests = rests;
++        self.selected = selected;
 +        self.lane_filter = lane;
 +        self.expanded = expanded;
-+        if let Some(snapshot) = &self.snapshot { self.projection = Some(snapshot.visual_lanes(&self.expanded, &self.lane_filter)); }
++        if let Some(snapshot) = &self.snapshot { self.projection = Some(snapshot.with_rests(self.rests).visual_lanes(&self.expanded, &self.lane_filter)); }
 +        self.mode = mode.min(8);
 +        self.orbit = orbit;
 +        self.ghosts = ghosts;
@@ -2291,7 +2328,7 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +                && e.original_pitch
 +                    .is_none_or(|p| p.is_finite() && (-256.0..=256.0).contains(&p))
 +        });
-+        self.projection = Some(snapshot.visual_lanes(&self.expanded, &self.lane_filter));
++        self.projection = Some(snapshot.with_rests(self.rests).visual_lanes(&self.expanded, &self.lane_filter));
 +        self.snapshot = Some(snapshot);
 +    }
 +    pub fn update(&mut self, world: &mut World) {
@@ -2344,6 +2381,11 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +            material(world, halo, format!("MusicHalo{i}"), color, 1.4);
 +            let heading = spawn_3d_billboard_text_with_properties(world, "", Vec3::zeros(), TextProperties { font_size: 16.0, ..Default::default() });
 +            self.lanes.push(LaneScene {
++                selection: Some(std::array::from_fn(|side| {
++                    let edge = spawn_cube_at(world, Vec3::zeros());
++                    material(world, edge, format!("MusicSelected{i}_{side}"), [1.0,0.76,0.2], 1.0);
++                    edge
++                })),
 +                heading: Some((heading, String::new())),
 +                inscription: Some((surface_label(world), String::new())),
 +                rail: Some(rail),
@@ -2382,7 +2424,7 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +                    &e.lane == id && e.cycle + e.duration > cycle - 1.5 && e.cycle < cycle + 2.0
 +                }) {
 +                    let elapsed = ((cycle - event.cycle) / snapshot.cps.max(0.001)) as f32;
-+                    let hit = if elapsed >= 0.0 {
++                    let hit = if elapsed >= 0.0 && !event.rest {
 +                        (-elapsed * 7.0).exp()
 +                    } else {
 +                        0.0
@@ -2421,7 +2463,7 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +                            lane.notes.push((faces, String::new()));
 +                        }
 +                        let entity = lane.blocks[used];
-+                        let tint = if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
++                        let tint = if event.rest { [0.25,0.3,0.38] } else if event.part.is_empty() { PALETTE[index % 8] } else { event.part_color.map(|v| f32::from(v) / 255.0) };
 +                        if lane.colors[used] != tint {
 +                            // Mutate this pool slot's material; never allocate per event/frame.
 +                            nightshade::ecs::world::commands::set_material_with_textures(world, entity, Material {
@@ -2466,7 +2508,7 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +                        }
 +                        label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
 +                        let (notes, previous) = &mut lane.notes[used];
-+                        let glyph = protocol::music_link_types::note_glyph(event.pitch);
++                        let glyph = event.face_label();
 +                        let changed = *previous != glyph;
 +                        let faces = crate::music_text::block_faces([length, thickness, 0.22 + hit * 0.15]);
 +                        for (note, face) in notes.iter().zip(faces) {
@@ -2529,6 +2571,22 @@ index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898
 +                    .unwrap_or_else(|| Vec2::new(text.len().max(1) as f32 * 0.1, 0.16));
 +                let scale = if index < count { crate::music_text::face_text_scale(4.0,0.65,bounds.x,bounds.y) } else { 0.0 };
 +                pose(world, *entity, Vec3::new(rail_start + 2.0,-0.045,z), Vec3::repeat(scale));
++            }
++            if let Some(edges) = lane.selection {
++                let selected = visible.get(index).is_some_and(|row| self.selected.as_ref().is_some_and(|(parent,part)| {
++                    if let Some((root, name)) = protocol::music_link_types::virtual_parent(&row.id) { root == parent && name == part }
++                    else { row.id == *parent && !visible.iter().any(|child| protocol::music_link_types::virtual_parent(&child.id).is_some_and(|(root,name)| root == parent && name == part)) }
++                }));
++                let length = rail_end-rail_start;
++                for (side, edge) in edges.into_iter().enumerate() {
++                    let (position,size) = match side {
++                        0 => (Vec3::new((rail_start+rail_end)*0.5,0.005,z-0.48),Vec3::new(length,0.015,0.025)),
++                        1 => (Vec3::new((rail_start+rail_end)*0.5,0.005,z+0.48),Vec3::new(length,0.015,0.025)),
++                        2 => (Vec3::new(rail_start,0.005,z),Vec3::new(0.025,0.015,0.96)),
++                        _ => (Vec3::new(rail_end,0.005,z),Vec3::new(0.025,0.015,0.96)),
++                    };
++                    pose(world,edge,position,if selected {size} else {Vec3::zeros()});
++                }
 +            }
 +            let visible = index < count;
 +            if let Some(rail) = lane.rail {

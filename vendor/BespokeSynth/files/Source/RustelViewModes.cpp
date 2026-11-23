@@ -13,6 +13,7 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
    float low = 127, high = 0;
    for (const auto& event : mEvents)
    {
+      if (event.rest) continue;
       if (std::find(visible.begin(), visible.end(), event.lane) == visible.end())
          continue;
       if (event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 0.5)
@@ -165,6 +166,7 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
             break;
          const int row = EventRow(event);
          if (row < 0) continue;
+         if (event.rest && mViewMode >= 3) continue;
          const float rowHeight = std::max(64.0f, height / std::max<size_t>(1, mRows.size()));
          const float rowWidth = std::max(110.0f, width / std::max<size_t>(1, mRows.size()));
          auto rowPitchY = [&](float p) { return edge + (row + 1) * rowHeight - (p-low)/(high-low) * std::max(1.0f, rowHeight-18); };
@@ -178,17 +180,20 @@ void RustelView::DrawEventView(const std::vector<int>& visible, double cycle, bo
                continue;
             float pitch = source ? event.original : event.pitch;
             auto color = event.part.empty() ? colors[event.lane % colors.size()] : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
+            if (event.rest) color = ofColor(105, 120, 140);
             color.a = source ? 65 : (sounding ? 255 : 150);
             if (mViewMode == 1)
             {
                float h = std::max(event.part.empty() ? 2.0f : 12.0f, height / (high - low) * 0.75f);
                rect(timeX(event.cycle), rowPitchY(pitch) - h * 0.5f, std::max(2.0f, float(event.duration) * width / 2), source ? 1.5f : h, color);
+               if (!source) text(event.note, timeX(event.cycle) + 2, rowPitchY(pitch) + 3, ofColor(8, 14, 27));
                if (!source && !event.part.empty()) text(event.part, timeX(event.cycle) + 2, rowPitchY(pitch) - 9, color);
             }
             else if (mViewMode == 2)
             {
                float w = std::max(3.0f, width / (high - low) * 0.65f);
                rect(rowPitchX(pitch) - w * 0.5f, timeY(event.cycle + event.duration), source ? 1.5f : w, std::max(3.0f, float(event.duration) * height / 2), color);
+               if (!source) text(event.note, rowPitchX(pitch) + 4, timeY(event.cycle + event.duration) + 20, color);
                if (!source && !event.part.empty()) text(event.part, rowPitchX(pitch) + 4, timeY(event.cycle + event.duration) + 10, color);
             }
             else if (mViewMode == 3)

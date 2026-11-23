@@ -74,6 +74,7 @@ void RustelView::CreateUIControls()
    mOrbitCheckbox = new Checkbox(this, "orbit", 410, 30, &mOrbit);
    mSoloCheckbox = new Checkbox(this, "solo", 480, 30, &mSolo);
    mPartsCheckbox = new Checkbox(this, "parts", 535, 30, &mShowParts);
+   mRestsCheckbox = new Checkbox(this, "rests (~)", 535, 54, &mShowRests);
    mResetCamera = new ClickButton(this, "reset", 595, 30);
 
 }
@@ -208,10 +209,11 @@ void RustelView::Poll()
       }
    }
    mEvents.clear();
-   if (auto* list = session["events"].getArray())
+   for (const auto* collection : { "events", "rests" })
+   if (auto* list = session[collection].getArray())
       for (const auto& event : *list)
       {
-         if (mEvents.size() >= 2048)
+         if (mEvents.size() >= 2560)
             break;
          auto id = event["lane"].toString().toStdString();
          auto lane = std::find_if(lanes.begin(), lanes.end(), [&](const Lane& l)
@@ -229,6 +231,12 @@ void RustelView::Poll()
          Event parsed{ int(lane - lanes.begin()), begin, duration, original, pitch, std::clamp(gain, 0.0f, 1.0f) };
          const auto pitchValue = event["pitch"];
          parsed.note = RustelNoteGlyph::Format(pitchValue.isDouble() || pitchValue.isInt() || pitchValue.isInt64(), pitch);
+         parsed.rest = bool(event["rest"]);
+         const auto sound = event["sound"].toString().toStdString();
+         if (!sound.empty()) parsed.note = parsed.note == "x" ? sound : sound + " / " + parsed.note;
+         const auto faceLabel = event["block_label"].toString().toStdString();
+         if (!faceLabel.empty()) parsed.note = faceLabel;
+         if (parsed.rest) parsed.note = "~";
          parsed.part = event["part"].toString().substring(0, 64).toStdString();
          if (auto* rgb = event["part_color"].getArray(); rgb && rgb->size() == 3)
             for (int c = 0; c < 3; ++c) parsed.partColor[c] = std::clamp(int((*rgb)[c]), 0, 255);
@@ -363,6 +371,7 @@ int RustelView::SelectedRow() const
 
 int RustelView::EventRow(const Event& event) const
 {
+   if (event.rest && !mShowRests) return -1;
    int parent = -1;
    for (int i = 0; i < int(mRows.size()); ++i)
       if (mRows[i].lane == event.lane)
@@ -406,6 +415,7 @@ void RustelView::DrawModule()
    mOrbitCheckbox->Draw();
    mSoloCheckbox->Draw();
    mPartsCheckbox->Draw();
+   mRestsCheckbox->Draw();
    mResetCamera->Draw();
    const double now = juce::Time::getMillisecondCounterHiRes();
    const double dt = mLastFrame > 0 ? std::clamp((now - mLastFrame) / 1000.0, 0.0, 0.1) : 0;
@@ -559,14 +569,14 @@ void RustelView::DrawModule()
                if (EventRow(event) != row || event.cycle + event.duration < cycle - 1.5 || event.cycle > cycle + 2)
                   continue;
                float elapsed = float((cycle - event.cycle) / mCps);
-               float hit = elapsed >= 0 ? std::exp(-elapsed * 7) : 0;
-               pulse = std::max(pulse, hit);
+               float hit = elapsed >= 0 && !event.rest ? std::exp(-elapsed * 7) : 0;
+               if (!event.rest) pulse = std::max(pulse, hit);
                if (rendered++ >= 128 || totalRendered >= 1024)
                   continue;
                ++totalRendered;
                float x = float(event.cycle - cycle) * 5;
                float length = float(std::clamp(event.duration, 0.012, 3.0)) * 5;
-               auto eventColor = event.part.empty() ? color : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
+               auto eventColor = event.rest ? ofColor(105, 120, 140) : (event.part.empty() ? color : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]));
                if (!event.part.empty())
                {
                   const auto point = project({ x + length * 0.5f, (event.pitch - 24) * 0.065f + 0.55f + hit * 0.35f, z + 0.1f });
@@ -882,6 +892,30 @@ float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cyc
          ++characters;
       }
       auto row = mDocument.substr(begin, end - begin);
+      // Hit regions use the same wrapped byte ranges and clipping as the text.
+      // Clicking any part of a const definition selects its virtual part.
+      const float panelTop = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 20;
+      const float hitTop = std::max(panelTop, y - 13);
+      const float hitBottom = std::min(mHeight - 28, y + 3);
+      if (hitBottom > hitTop)
+         for (const auto& binding : mBindings)
+         {
+            const int from = binding.definitionTo > binding.definitionFrom ? binding.definitionFrom : binding.from;
+            const int to = binding.definitionTo > binding.definitionFrom ? binding.definitionTo : binding.to;
+            const size_t a = std::max(begin, size_t(std::max(0, from)));
+            const size_t b = std::min(end, size_t(std::max(0, to)));
+            if (b <= a || visible.empty()) continue;
+            int parent = visible.front();
+            for (int candidate : visible)
+               if (std::any_of(mLanes[candidate].parts.begin(), mLanes[candidate].parts.end(), [&](const NamedPart& p) { return p.name == binding.name; }))
+               {
+                  parent = candidate;
+                  if (mLanes[candidate].id == mSelectedLane) break;
+               }
+            float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
+            float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
+            mSourceButtons.push_back({ ofRectangle(x, hitTop, std::max(5.0f, width), hitBottom - hitTop), mLanes[parent].id, binding.name });
+         }
       if (mSourceFocusFrom >= 0 && mSourceFocusTo > mSourceFocusFrom)
       {
          const size_t a = std::max(begin, size_t(mSourceFocusFrom));

@@ -170,6 +170,7 @@ impl Session {
         }
         if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
             state.snapshot.events.clear();
+            state.snapshot.rests.clear();
         }
         if state.snapshot.generation == generation {
             for lane in &mut lanes {
@@ -254,7 +255,9 @@ impl Session {
             let Some(controls) = controls(&event.value) else {
                 continue;
             };
-            state.snapshot.events.push(Event {
+            let mut captured = Event {
+                block_label: String::new(),
+                rest: false,
                 part_color: music_link::named_color(observation.part.as_deref().unwrap_or_default()),
                 part: observation.part.as_deref().unwrap_or_default().to_owned(),
                 context: observation.context.clone(),
@@ -279,7 +282,9 @@ impl Session {
                     _ => String::new(),
                 },
                 gain: controls.get("gain").and_then(Value::as_f64).unwrap_or(0.8),
-            });
+            };
+            captured.block_label = captured.describe(&state.snapshot.source);
+            state.snapshot.events.push(captured);
         }
         audition(&mut events, state.snapshot.solo_lane.as_deref());
         if state.snapshot.events.len() > 2048 {
@@ -287,6 +292,7 @@ impl Session {
             state.snapshot.events.drain(..discard);
         }
         if state.last_publish.elapsed() >= Duration::from_millis(50) {
+            state.snapshot.rests = state.snapshot.inferred_rests();
             link.publish(state.snapshot.clone());
             state.last_publish = Instant::now();
         }

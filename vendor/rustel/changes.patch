@@ -1256,10 +1256,10 @@ index da90ac5cd82e5a18d53ca8743005f724999f2197..f58506bb23d8aec12ddf3878e6961dbf
  
 diff --git a/crates/jsruntime/tests/mini_source_alignment.rs b/crates/jsruntime/tests/mini_source_alignment.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..4560a00955c9f0ee1fb5a2e47c3d89cb9f1a0e73
+index 0000000000000000000000000000000000000000..721a35b4364187c1085cceb6b5ab96edc2fa045d
 --- /dev/null
 +++ b/crates/jsruntime/tests/mini_source_alignment.rs
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,129 @@
 +use rustel_fraction::Fraction;
 +use rustel_jsruntime::{JsRuntime, Slot};
 +use rustel_transpiler::{TranspileOptions, transpile};
@@ -1305,10 +1305,7 @@ index 0000000000000000000000000000000000000000..4560a00955c9f0ee1fb5a2e47c3d89cb
 +    );
 +    assert_tokens("note(\"a2 \\\r\n    f2   c3\")", &["a2", "f2", "c3"]);
 +    // Mapped mini calls inside callbacks must retain the map through the JS bridge.
-+    assert_tokens(
-+        "pure(1).layer(x => note(\"a2 \\\n    e3\"))",
-+        &["a2", "e3"],
-+    );
++    assert_tokens("pure(1).layer(x => note(\"a2 \\\n    e3\"))", &["a2", "e3"]);
 +}
 +
 +#[test]
@@ -1335,6 +1332,62 @@ index 0000000000000000000000000000000000000000..4560a00955c9f0ee1fb5a2e47c3d89cb
 +            "c3", "g2", "b2", "g2", "g2", "d3", "g2", "d3", "b2", "d3",
 +        ],
 +    );
++}
++
++#[test]
++fn structure_and_sound_tokens_survive_composition_for_block_labels() {
++    let source = r#"note("c4").s("gm_acoustic_guitar_nylon").struct("~ x ~ xx").gain(0.43)"#;
++    let runtime = JsRuntime::new().unwrap();
++    runtime.install_semantic_bindings().unwrap();
++    runtime
++        .evaluate_score(source, &TranspileOptions::default())
++        .unwrap();
++    let haps = runtime
++        .query(Slot::Active, 0, Fraction::ZERO, Fraction::ONE)
++        .unwrap();
++    assert!(!haps.is_empty());
++    let tokens = haps
++        .iter()
++        .map(|h| {
++            h.context
++                .iter()
++                .map(|(a, b)| &source[a..b])
++                .collect::<Vec<_>>()
++        })
++        .collect::<Vec<_>>();
++    assert!(
++        tokens
++            .iter()
++            .all(|t| t.contains(&"gm_acoustic_guitar_nylon")),
++        "{tokens:?}"
++    );
++    assert!(tokens.iter().any(|t| t.contains(&"x")), "{tokens:?}");
++    assert!(tokens.iter().any(|t| t.contains(&"xx")), "{tokens:?}");
++}
++
++#[test]
++fn repeated_sound_context_identifies_the_sound_leaf() {
++    let source = r#"s("hh*8").gain("0.23 0.1")"#;
++    let runtime = JsRuntime::new().unwrap();
++    runtime.install_semantic_bindings().unwrap();
++    runtime
++        .evaluate_score(source, &TranspileOptions::default())
++        .unwrap();
++    let haps = runtime
++        .query(Slot::Active, 0, Fraction::ZERO, Fraction::ONE)
++        .unwrap();
++    assert_eq!(haps.len(), 8);
++    for hap in haps {
++        let tokens = hap
++            .context
++            .iter()
++            .map(|(a, b)| &source[a..b])
++            .collect::<Vec<_>>();
++        assert!(tokens.contains(&"hh"), "{tokens:?}");
++        // Keep this fixture realistic: repetition arguments also have source
++        // context, so face-label consumers must not mistake the 8 for a sound.
++        assert!(tokens.contains(&"8"), "{tokens:?}");
++    }
 +}
 diff --git a/crates/jsruntime/tests/music_parts.rs b/crates/jsruntime/tests/music_parts.rs
 new file mode 100644
@@ -1477,10 +1530,10 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4789bc2db
+index 0000000000000000000000000000000000000000..7d154779691119d8ebad70f9204d155e05190977
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
-@@ -0,0 +1,442 @@
+@@ -0,0 +1,448 @@
 +//! Opt-in producer-side telemetry and pointwise transpose overlays.
 +//! No extra pattern queries and no socket work on the Session thread.
 +use super::*;
@@ -1653,6 +1706,7 @@ index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4
 +        }
 +        if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
 +            state.snapshot.events.clear();
++            state.snapshot.rests.clear();
 +        }
 +        if state.snapshot.generation == generation {
 +            for lane in &mut lanes {
@@ -1737,7 +1791,9 @@ index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4
 +            let Some(controls) = controls(&event.value) else {
 +                continue;
 +            };
-+            state.snapshot.events.push(Event {
++            let mut captured = Event {
++                block_label: String::new(),
++                rest: false,
 +                part_color: music_link::named_color(observation.part.as_deref().unwrap_or_default()),
 +                part: observation.part.as_deref().unwrap_or_default().to_owned(),
 +                context: observation.context.clone(),
@@ -1762,7 +1818,9 @@ index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4
 +                    _ => String::new(),
 +                },
 +                gain: controls.get("gain").and_then(Value::as_f64).unwrap_or(0.8),
-+            });
++            };
++            captured.block_label = captured.describe(&state.snapshot.source);
++            state.snapshot.events.push(captured);
 +        }
 +        audition(&mut events, state.snapshot.solo_lane.as_deref());
 +        if state.snapshot.events.len() > 2048 {
@@ -1770,6 +1828,7 @@ index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4
 +            state.snapshot.events.drain(..discard);
 +        }
 +        if state.last_publish.elapsed() >= Duration::from_millis(50) {
++            state.snapshot.rests = state.snapshot.inferred_rests();
 +            link.publish(state.snapshot.clone());
 +            state.last_publish = Instant::now();
 +        }
