@@ -42,7 +42,8 @@ try {
  const selection=await evaluate(`(()=>{const p=document.querySelector('.music-source'),b=document.querySelector('[data-source-selection]');const n=[...p.querySelectorAll('span')].find(n=>n.textContent==='harmony');n.click();return {text:p.textContent.length,spans:p.querySelectorAll('span').length,border:getComputedStyle(b).borderTopWidth,fill:getComputedStyle(b).backgroundColor,nameFill:getComputedStyle(n).backgroundColor};})()`);
  assert.equal(selection.fill,'rgba(0, 0, 0, 0)');assert.equal(selection.nameFill,'rgba(0, 0, 0, 0)');
  assert.notEqual(selection.border,'0px');assert(selection.spans<selection.text/2);
- await evaluate(`window.__messageTimes=[];window.__frames=[];document.querySelector('.music-part-toggle').click()`);
+ assert.equal(await evaluate(`document.querySelector('.music-part-toggle').getAttribute('aria-expanded')`),'true','parts should start expanded');
+ await evaluate(`window.__messageTimes=[];window.__frames=[]`);
  await sleep(8000);
  const result=await evaluate(`({messages:window.__messageTimes.length,worst:Math.max(...window.__messageTimes),mean:window.__messageTimes.reduce((a,b)=>a+b,0)/window.__messageTimes.length,frames:window.__frames.slice(-5),status:document.querySelector('[role=status]').textContent,mode:document.querySelector('[aria-label="Music view"]').value})`);
  console.log(JSON.stringify({selection,...result},null,2));

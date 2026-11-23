@@ -154,6 +154,8 @@ pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
 
     let incoming_bridge = bridge.clone();
     let mut seen = std::collections::BTreeMap::<String, f64>::new();
+    let mut expansion_session = String::new();
+    let mut expansion_seen = std::collections::BTreeSet::new();
     let onmessage = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
         let Ok(buffer) = event.data().dyn_into::<js_sys::ArrayBuffer>() else {
             return;
@@ -220,6 +222,21 @@ pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
         }
         if snapshot.session != state.music_session.get_untracked() {
             return;
+        }
+        if expansion_session != snapshot.session {
+            expansion_session = snapshot.session.clone();
+            expansion_seen.clear();
+            state.music_expanded.set(Vec::new());
+        }
+        // Parts may arrive after the initial snapshot. Open each new parent once,
+        // without reopening a parent the user explicitly collapsed.
+        let newly_expanded: Vec<_> = snapshot.lanes.iter()
+            .filter(|l| l.parts.iter().any(|p| !p.helper) && expansion_seen.insert(l.id.clone()))
+            .map(|l| l.id.clone()).collect();
+        if !newly_expanded.is_empty() {
+            state.music_expanded.update(|ids| {
+                for id in newly_expanded {if !ids.contains(&id) {ids.push(id);}}
+            });
         }
         state.music_status.set(format!(
             "{} · {:.2} cycles · {} lanes",

@@ -952,10 +952,10 @@ index 0000000000000000000000000000000000000000..6fb27e1234173c7a990c80bb7c320c17
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..e287f7c0c8f0cca0361b9310d484dd9bd87beee6
+index 0000000000000000000000000000000000000000..9637e4d992b4f547eb14cedd3e777978ac6be07f
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,1208 @@
+@@ -0,0 +1,1215 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -1123,6 +1123,7 @@ index 0000000000000000000000000000000000000000..e287f7c0c8f0cca0361b9310d484dd9b
 +      mLaneIndex = -1;
 +      mLanes.clear();
 +      mExpanded.clear();
++      mExpansionSeen.clear();
 +      mEvents.clear();
 +      mLive = false;
 +      mSourceScroll = 0;
@@ -1220,6 +1221,10 @@ index 0000000000000000000000000000000000000000..e287f7c0c8f0cca0361b9310d484dd9b
 +      for (size_t i = 0; i < lanes.size(); ++i)
 +         changed |= lanes[i].id != mLanes[i].id || lanes[i].label != mLanes[i].label || lanes[i].source != mLanes[i].source;
 +   mLanes = lanes;
++   // Expand only on first discovery; later snapshots must respect a collapse.
++   for (const auto& lane : mLanes)
++      if (!lane.parts.empty() && mExpansionSeen.insert(lane.id).second)
++         mExpanded.insert(lane.id);
 +   if (changed)
 +   {
 +      mLanePicker->Clear();
@@ -1914,6 +1919,8 @@ index 0000000000000000000000000000000000000000..e287f7c0c8f0cca0361b9310d484dd9b
 +   }
 +   mCameraDragging = false;
 +   mSessionIds.clear();
++   mExpanded.clear();
++   mExpansionSeen.clear();
 +   mSourceFocusFrom = mSourceFocusTo = -1;
 +   mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
 +   mSourceButtons.clear();
@@ -2166,10 +2173,10 @@ index 0000000000000000000000000000000000000000..e287f7c0c8f0cca0361b9310d484dd9b
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..5afc6db26a070793293097a4db3d6ce3f76e01f6
+index 0000000000000000000000000000000000000000..f960ef019b3992659b567c35f7f11bdbcc5f63b2
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,141 @@
 +#pragma once
 +#include <juce_core/juce_core.h>
 +
@@ -2229,6 +2236,7 @@ index 0000000000000000000000000000000000000000..5afc6db26a070793293097a4db3d6ce3
 +   struct VisualRow { int lane; std::string part, label; bool child; };
 +   std::vector<VisualRow> mRows;
 +   std::set<std::string> mExpanded;
++   std::set<std::string> mExpansionSeen;
 +   std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
 +   struct SourceButton { ofRectangle bounds; std::string lane, part; bool expression{ false }; };
 +   std::vector<SourceButton> mSourceButtons;

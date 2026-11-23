@@ -57,6 +57,7 @@ private:
    struct VisualRow { int lane; std::string part, label; bool child; };
    std::vector<VisualRow> mRows;
    std::set<std::string> mExpanded;
+   std::set<std::string> mExpansionSeen;
    std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
    struct SourceButton { ofRectangle bounds; std::string lane, part; bool expression{ false }; };
    std::vector<SourceButton> mSourceButtons;

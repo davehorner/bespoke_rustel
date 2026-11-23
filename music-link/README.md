@@ -443,8 +443,10 @@ lane rather than a referenced const. The source selection and stage floor follow
 that lane; an existing single-lane filter follows it too, while all-lanes stays
 in all-lanes mode.
 
-Expanded virtual lists contain independently emitting musical parts. Shared
-definitions appear once per session alongside the source: `bpm`, meter settings,
+Expanded virtual lists contain independently emitting musical parts.
+Parts start expanded when discovered; collapsing a parent stays in effect as
+new snapshots arrive. Switching sessions initializes that session expanded.
+Shared definitions appear once per session alongside the source: `bpm`, meter settings,
 and other numeric constants have cycle-based value histories (up to 128 samples).
 Numeric literals and arithmetic over earlier numeric constants are read from the
 AST; inspecting a definition never calls user functions. Values that cannot be

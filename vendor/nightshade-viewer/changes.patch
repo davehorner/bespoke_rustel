@@ -586,10 +586,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..b30ac5df49e3fd73506dedee49f74026b807cee8
+index 0000000000000000000000000000000000000000..d7116d745d6af4a696486ccf3f2d2be81bc1f9ed
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,514 @@
+@@ -0,0 +1,531 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -746,6 +746,8 @@ index 0000000000000000000000000000000000000000..b30ac5df49e3fd73506dedee49f74026
 +
 +    let incoming_bridge = bridge.clone();
 +    let mut seen = std::collections::BTreeMap::<String, f64>::new();
++    let mut expansion_session = String::new();
++    let mut expansion_seen = std::collections::BTreeSet::new();
 +    let onmessage = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
 +        let Ok(buffer) = event.data().dyn_into::<js_sys::ArrayBuffer>() else {
 +            return;
@@ -812,6 +814,21 @@ index 0000000000000000000000000000000000000000..b30ac5df49e3fd73506dedee49f74026
 +        }
 +        if snapshot.session != state.music_session.get_untracked() {
 +            return;
++        }
++        if expansion_session != snapshot.session {
++            expansion_session = snapshot.session.clone();
++            expansion_seen.clear();
++            state.music_expanded.set(Vec::new());
++        }
++        // Parts may arrive after the initial snapshot. Open each new parent once,
++        // without reopening a parent the user explicitly collapsed.
++        let newly_expanded: Vec<_> = snapshot.lanes.iter()
++            .filter(|l| l.parts.iter().any(|p| !p.helper) && expansion_seen.insert(l.id.clone()))
++            .map(|l| l.id.clone()).collect();
++        if !newly_expanded.is_empty() {
++            state.music_expanded.update(|ids| {
++                for id in newly_expanded {if !ids.contains(&id) {ids.push(id);}}
++            });
 +        }
 +        state.music_status.set(format!(
 +            "{} · {:.2} cycles · {} lanes",

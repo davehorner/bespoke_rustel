@@ -165,6 +165,7 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
       mLaneIndex = -1;
       mLanes.clear();
       mExpanded.clear();
+      mExpansionSeen.clear();
       mEvents.clear();
       mLive = false;
       mSourceScroll = 0;
@@ -262,6 +263,10 @@ void RustelView::Poll()
       for (size_t i = 0; i < lanes.size(); ++i)
          changed |= lanes[i].id != mLanes[i].id || lanes[i].label != mLanes[i].label || lanes[i].source != mLanes[i].source;
    mLanes = lanes;
+   // Expand only on first discovery; later snapshots must respect a collapse.
+   for (const auto& lane : mLanes)
+      if (!lane.parts.empty() && mExpansionSeen.insert(lane.id).second)
+         mExpanded.insert(lane.id);
    if (changed)
    {
       mLanePicker->Clear();
@@ -956,6 +961,8 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
    }
    mCameraDragging = false;
    mSessionIds.clear();
+   mExpanded.clear();
+   mExpansionSeen.clear();
    mSourceFocusFrom = mSourceFocusTo = -1;
    mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
    mSourceButtons.clear();
