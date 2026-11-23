@@ -16,7 +16,8 @@ try {
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:String.raw`(()=>{
  const nativeWS=window.WebSocket;window.__workers=[];window.__frames=[];window.__messageTimes=[];
- window.Worker=class extends Worker {constructor(...a){super(...a);window.__workers.push(this);this.addEventListener('message',e=>{if(e.data?.Stats){window.__frames.push({at:Date.now(),...e.data.Stats});}});}};
+ window.__readyViews=[];
+ window.Worker=class extends Worker {constructor(...a){super(...a);window.__workers.push(this);this.addEventListener('message',e=>{if(e.data?.Ready)this.__testReady=true;if(e.data?.Stats){window.__frames.push({at:Date.now(),...e.data.Stats});}});}postMessage(message,...transfer){if(message?.message?.Init){setTimeout(()=>super.postMessage(message,...transfer),800);return;}if(this.__testReady&&message?.message?.MusicView)window.__readyViews.push(message.message.MusicView);return super.postMessage(message,...transfer);}};
  const names=['bpm','harmony','bass','pulse',...Array.from({length:44},(_,i)=>'part'+i)];
  const lines=names.map(n=>n==='bpm'?'const bpm = 124;':n==='harmony'?'const harmony = chord("<Am9 Fmaj7 Cmaj7 G6>").dict("ireal");':'const '+n+' = note("c3 e3 g3 b3 c4 e4 g4 b4").s("gm_acoustic_guitar_nylon").gain(0.43);');
  const statement='$: stack(bass, pulse)';let source=lines.join('\n')+'\n'+statement;
@@ -34,6 +35,7 @@ try {
  await send('Page.navigate',{url:process.env.VIEWER_URL||'http://127.0.0.1:18765/?music=1'});
  for(let i=0;i<60;i++){if(await evaluate('window.__frames?.length>1'))break;await sleep(500);}
  assert(await evaluate('window.__frames?.length>1'),`GPU did not initialize: ${JSON.stringify(errors)}`);
+ assert(await evaluate(`window.__readyViews.some(v=>v.expanded.includes('#0'))`),'initial expanded view was not delivered after delayed worker startup');
  const definitions=await evaluate(`(()=>{const cards=[...document.querySelectorAll('button')].filter(b=>b.title.startsWith('Select definition'));return cards.map(b=>({text:b.textContent,graphs:b.querySelectorAll('svg').length}));})()`);
  assert.equal(definitions.length,2,'shared definitions were duplicated');assert(definitions.every(d=>d.graphs===1),'definition graphs missing');
  assert(definitions.some(d=>d.text.includes('bpm = 124')));assert(definitions.some(d=>d.text.includes('harmony')));

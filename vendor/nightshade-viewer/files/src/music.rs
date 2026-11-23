@@ -311,7 +311,10 @@ pub fn MusicPanel(
         state.music_expanded.get();
         state.music_rests.get();
         state.music_source_focus.get();
-        configure();
+        // Initial snapshots can expand parts while WebGPU is still starting.
+        // The worker drops messages before Ready, so replay the current view
+        // when it becomes ready as well as after user changes.
+        if state.ready.get() { configure(); }
     });
     view! {
         <Show when=enabled>

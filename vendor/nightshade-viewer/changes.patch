@@ -586,10 +586,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..d7116d745d6af4a696486ccf3f2d2be81bc1f9ed
+index 0000000000000000000000000000000000000000..6dff4e77e1329b2a67ada47fe614c71059a4c37f
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,531 @@
+@@ -0,0 +1,534 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -903,7 +903,10 @@ index 0000000000000000000000000000000000000000..d7116d745d6af4a696486ccf3f2d2be8
 +        state.music_expanded.get();
 +        state.music_rests.get();
 +        state.music_source_focus.get();
-+        configure();
++        // Initial snapshots can expand parts while WebGPU is still starting.
++        // The worker drops messages before Ready, so replay the current view
++        // when it becomes ready as well as after user changes.
++        if state.ready.get() { configure(); }
 +    });
 +    view! {
 +        <Show when=enabled>
