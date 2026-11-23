@@ -49,11 +49,11 @@
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "aa6606f4f2fadc1af5520b7203ac2e689ff08848bdc41f4a03e6ce7496df4e9b"
+          "sha256": "7b711574e367ad21760e6dfad007b390efda0ba913147893cb4456a808396296"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "9e9f44d3ffcae4a3283c366349cd1b2619933e651ef8fc93e011a40f87f26fa1"
+          "sha256": "d9d79d6e36ace986100ae5491b3066f683963f16fec5f7b2fbd976ba07981120"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -64,8 +64,8 @@
           "sha256": "607d2c33cbf2fefe146d123e746136cdac008333fdf56ef9f844e97eb04b9768"
         }
       ],
-      "patch_sha256": "bb54036be5317dfc3215c03c171a10ada5b43cb729a2afd1986c06dc67087cb1",
-      "result_tree": "0023d201fde0726eee159bb20be8260524efe585"
+      "patch_sha256": "9b3dd5afe56617b6173263597041e0a652d48a98e181dbfee1f12aa2bded4b87",
+      "result_tree": "9e612d585d4ba4982847d97ba8293da32fda8252"
     },
     {
       "name": "rustel",
@@ -163,7 +163,7 @@
         },
         {
           "path": "crates/runtime/src/session/music.rs",
-          "sha256": "1717e6a62521bd307c10e7e2abc4e0c90ba84a665c3f62f53e4f6b8bd66216ba"
+          "sha256": "5c9b7a00c7a1e7a88d598f55a915a59395816a8f0ea88af51269bb40b80d6390"
         },
         {
           "path": "crates/runtime/src/session/scheduling.rs",
@@ -198,8 +198,8 @@
           "sha256": "628186871d158bd215a9720460299eeba39b0f4d0597086b34f2a29e998f8897"
         }
       ],
-      "patch_sha256": "c44785e3baa58a407cb5da00b9162ec0107a5cbec9e3a15fd2ce29981407ecc3",
-      "result_tree": "a7dd305bebbaaa8a858e6f3c8363434cc3d113c9"
+      "patch_sha256": "a7ade76c567004addc195fcced5c9eff10286966c389282934b9efacbe6eae7a",
+      "result_tree": "c8145b2f455bd123170fa70db2b0baad4a263d1a"
     },
     {
       "name": "nightshade-viewer",

@@ -167,6 +167,8 @@ void RustelView::Poll()
    PollAudio();
    mTransportAvailable = session["transport"].isObject();
    mPaused = mTransportAvailable && bool(session["transport"]["paused"]);
+   const auto inspection = session["transport"]["view_cycle"];
+   mInspectionCycle = (inspection.isDouble() || inspection.isInt() || inspection.isInt64()) && std::isfinite(double(inspection)) ? double(inspection) : cycle;
    if (mPaused) mReceived = juce::Time::getMillisecondCounterHiRes();
    if (generation == mGeneration && cycle == mCycle)
       return;
@@ -449,7 +451,7 @@ void RustelView::DrawModule()
       mOrbitPhase += dt * 0.15;
    const double age = std::max(0.0, (now - mReceived) / 1000.0);
    const bool live = mLive && age < 3.0;
-   const double cycle = mCycle + (mPaused ? 0 : std::min(age, 3.0) * mCps);
+   const double cycle = mPaused ? mInspectionCycle : mCycle + std::min(age, 3.0) * mCps;
    std::vector<int> visible;
    for (int i = 0; i < int(mLanes.size()); ++i)
       if (mLaneId.empty() || mLanes[i].id == mLaneId)

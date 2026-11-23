@@ -923,10 +923,10 @@ index 0000000000000000000000000000000000000000..6fb27e1234173c7a990c80bb7c320c17
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..3ce900e0833b0f9a54bbbc2e39a7f12204436057
+index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b764f796951
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,1069 @@
+@@ -0,0 +1,1071 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -1096,6 +1096,8 @@ index 0000000000000000000000000000000000000000..3ce900e0833b0f9a54bbbc2e39a7f122
 +   PollAudio();
 +   mTransportAvailable = session["transport"].isObject();
 +   mPaused = mTransportAvailable && bool(session["transport"]["paused"]);
++   const auto inspection = session["transport"]["view_cycle"];
++   mInspectionCycle = (inspection.isDouble() || inspection.isInt() || inspection.isInt64()) && std::isfinite(double(inspection)) ? double(inspection) : cycle;
 +   if (mPaused) mReceived = juce::Time::getMillisecondCounterHiRes();
 +   if (generation == mGeneration && cycle == mCycle)
 +      return;
@@ -1378,7 +1380,7 @@ index 0000000000000000000000000000000000000000..3ce900e0833b0f9a54bbbc2e39a7f122
 +      mOrbitPhase += dt * 0.15;
 +   const double age = std::max(0.0, (now - mReceived) / 1000.0);
 +   const bool live = mLive && age < 3.0;
-+   const double cycle = mCycle + (mPaused ? 0 : std::min(age, 3.0) * mCps);
++   const double cycle = mPaused ? mInspectionCycle : mCycle + std::min(age, 3.0) * mCps;
 +   std::vector<int> visible;
 +   for (int i = 0; i < int(mLanes.size()); ++i)
 +      if (mLaneId.empty() || mLanes[i].id == mLaneId)
@@ -1998,10 +2000,10 @@ index 0000000000000000000000000000000000000000..3ce900e0833b0f9a54bbbc2e39a7f122
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..4eb7611f3b13d9bf639be96b5eca22d94c0d9662
+index 0000000000000000000000000000000000000000..1c0c1268791e1c26de0a53cab83c78db585899ff
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,127 @@
 +#pragma once
 +
 +#include "IDrawableModule.h"
@@ -2114,6 +2116,7 @@ index 0000000000000000000000000000000000000000..4eb7611f3b13d9bf639be96b5eca22d9
 +   ClickButton* mBackButton{ nullptr };
 +   ClickButton* mForwardButton{ nullptr };
 +   bool mPaused{false}, mTransportAvailable{false};
++   double mInspectionCycle{0};
 +   bool mCameraDragging{ false }, mPanDragging{ false };
 +   int mDragButton{ 1 };
 +   float mDragX{ 0 }, mDragY{ 0 }, mPanX{ 0 }, mPanY{ 0 };

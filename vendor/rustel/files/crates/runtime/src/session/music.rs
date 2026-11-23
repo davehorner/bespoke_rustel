@@ -13,6 +13,7 @@ pub(super) struct MusicState {
     lane_slots: std::collections::BTreeMap<String, u8>,
     last_publish: Instant,
     paused_at: Option<f64>,
+    inspection_cycle: Option<f64>,
     pending_transport: std::collections::VecDeque<music_link::Command>,
     #[cfg(feature = "device-audio")]
     audio: Option<MusicAudio>,
@@ -41,6 +42,7 @@ impl Default for MusicState {
             lane_slots: Default::default(),
             last_publish: Instant::now(),
             paused_at: None,
+            inspection_cycle: None,
             pending_transport: Default::default(),
             #[cfg(feature = "device-audio")]
             audio: None,
@@ -112,8 +114,14 @@ impl Session {
         self.retime(now,self.cps(),target);
         let generations=self.requery_active_at(now)?;
         self.music.paused_at=paused.then_some(target);
-        self.music.snapshot.events.clear();
-        self.music.snapshot.rests.clear();
+        self.music.inspection_cycle=if paused {Some(self.music.inspection_cycle.unwrap_or(current))} else {None};
+        // This generation change belongs to the same score. Keep its scene
+        // while paused/stopped, including part identities and rest markers.
+        self.music.snapshot.generation=self.generation();
+        if !paused {
+            self.music.snapshot.events.clear();
+            self.music.snapshot.rests.clear();
+        }
         Ok(generations)
     }
 
@@ -198,6 +206,9 @@ impl Session {
         let source = self.active_source().unwrap_or_default().to_owned();
         let state = &mut self.music;
         if state.snapshot.source != source {
+            state.snapshot.events.clear();
+            state.snapshot.rests.clear();
+            state.inspection_cycle=state.paused_at;
             state.snapshot.bindings = rustel_transpiler::setup_definitions(&source)
                 .top_level_declarations.into_iter().filter(|d| d.kind == "const")
                 .map(|d| music_link::Binding {
@@ -206,7 +217,7 @@ impl Session {
                 }).collect();
             state.snapshot.source = source;
         }
-        if state.snapshot.generation != generation || cycle < state.snapshot.cycle {
+        if state.snapshot.generation != generation || (state.paused_at.is_none() && cycle < state.snapshot.cycle) {
             state.snapshot.events.clear();
             state.snapshot.rests.clear();
         }
@@ -218,7 +229,7 @@ impl Session {
         state.snapshot.generation = generation;
         state.snapshot.cycle = cycle;
         state.snapshot.cps = cps;
-        state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some()});
+        state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some(), view_cycle:state.inspection_cycle});
         state.snapshot.lanes = lanes;
         for lane in &mut state.snapshot.lanes {
             for binding in &state.snapshot.bindings {
@@ -276,7 +287,7 @@ impl Session {
         state
             .snapshot
             .events
-            .retain(|event| event.cycle + event.duration >= cycle - 1.0);
+            .retain(|event| state.paused_at.is_some() || event.cycle + event.duration >= cycle - 1.0);
         if state.paused_at.is_some() {events.clear();}
         for event in &mut events {
             if exporting {
@@ -356,6 +367,49 @@ impl Session {
 #[cfg(test)]
 mod transport_tests {
     use super::*;
+    #[test]
+    fn paused_and_stopped_scenes_keep_blocks_and_parts_at_the_inspection_cycle() {
+        // Enable source/lane tagging in an isolated process, not the shared
+        // environment of the parallel unit-test runner.
+        if std::env::var_os("RUSTEL_RETAIN_SCENE_TEST_CHILD").is_none() {
+            let result=std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact","session::music::transport_tests::paused_and_stopped_scenes_keep_blocks_and_parts_at_the_inspection_cycle"])
+                .env("RUSTEL_RETAIN_SCENE_TEST_CHILD","1").env("RUSTEL_MUSIC_LINK","1").output().unwrap();
+            assert!(result.status.success(),"{}\n{}",String::from_utf8_lossy(&result.stdout),String::from_utf8_lossy(&result.stderr));
+            return;
+        }
+        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
+            use music_link::TransportCommand::*;
+            let mut session=Session::new().unwrap();
+            session.music.link=Some(Link::connect().unwrap());
+            session.set_continuity_margin(0.0);
+            session.evaluate("const bass = note(\"c4*16\").s(\"sine\"); $: bass").unwrap();
+            session.retime(0.0,session.cps(),20.0);
+            session.schedule_at(0.0).unwrap();
+            assert!(!session.music.snapshot.events.is_empty());
+            let blocks=serde_json::to_value(&session.music.snapshot.events).unwrap();
+            let parts=serde_json::to_value(&session.music.snapshot.lanes[0].parts).unwrap();
+            session.music_transport_at(&Pause,0.25).unwrap();
+            let inspection=session.music.inspection_cycle.unwrap();
+            session.apply_pending_music_transport(2.0).unwrap();
+            assert!(session.schedule_at(2.0).unwrap().is_empty());
+            assert_eq!(serde_json::to_value(&session.music.snapshot.events).unwrap(),blocks);
+            session.music_transport_at(&Stop,2.0).unwrap();
+            session.apply_pending_music_transport(20.0).unwrap();
+            assert!(session.schedule_at(20.0).unwrap().is_empty());
+            assert_eq!(session.music.snapshot.cycle,0.0);
+            assert_eq!(session.music.snapshot.display_cycle(99.0),inspection);
+            assert_eq!(serde_json::to_value(&session.music.snapshot.events).unwrap(),blocks);
+            assert_eq!(serde_json::to_value(&session.music.snapshot.lanes[0].parts).unwrap(),parts);
+            session.music_transport_at(&Seek{cycle:8.0},20.0).unwrap();
+            session.apply_pending_music_transport(21.0).unwrap();
+            session.schedule_at(21.0).unwrap();
+            assert_eq!(session.music.snapshot.display_cycle(99.0),inspection);
+            session.music_transport_at(&Play,21.0).unwrap();
+            assert!(session.music.snapshot.events.is_empty(),"resume replaces retained history with fresh scheduled events");
+            assert_eq!(session.music.inspection_cycle,None);
+        }).unwrap().join().unwrap();
+    }
     #[cfg(feature="device-audio")]
     #[test]
     fn live_producer_publishes_transport_generations_and_resumes_audio() {

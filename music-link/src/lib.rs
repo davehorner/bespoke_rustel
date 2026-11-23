@@ -351,7 +351,9 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn display_cycle(&self, age: f64) -> f64 {
-        self.cycle + if self.transport.as_ref().is_some_and(|t|t.paused) {0.0} else {age.max(0.0).min(3.0)*self.cps}
+        if let Some(transport)=self.transport.as_ref().filter(|t|t.paused) {
+            transport.view_cycle.unwrap_or(self.cycle)
+        } else {self.cycle+age.max(0.0).min(3.0)*self.cps}
     }
     pub fn inferred_rests(&self) -> Vec<Event> {
         let mut groups = std::collections::BTreeMap::<(&str, &str), Vec<&Event>>::new();
@@ -460,7 +462,13 @@ impl Command {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransportState { pub paused: bool }
+pub struct TransportState {
+    pub paused: bool,
+    /// Frozen inspection position; Stop can reset playback to zero without
+    /// moving the retained blocks out of the viewer's visible time window.
+    #[serde(default)]
+    pub view_cycle: Option<f64>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag="action", rename_all="snake_case")]

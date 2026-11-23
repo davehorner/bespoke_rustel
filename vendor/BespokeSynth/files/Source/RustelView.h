@@ -110,6 +110,7 @@ private:
    ClickButton* mBackButton{ nullptr };
    ClickButton* mForwardButton{ nullptr };
    bool mPaused{false}, mTransportAvailable{false};
+   double mInspectionCycle{0};
    bool mCameraDragging{ false }, mPanDragging{ false };
    int mDragButton{ 1 };
    float mDragX{ 0 }, mDragY{ 0 }, mPanX{ 0 }, mPanY{ 0 };

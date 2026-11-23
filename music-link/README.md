@@ -409,6 +409,12 @@ reverse. Already sounding effect tails can ring out. Commands use the current
 session/generation and safely replace the device's queued future through the
 live producer. An older publisher without transport support disables these
 controls. Restart Rustel and the hub after updating to enable them.
+Pause and Stop retain the last scene, including its blocks, rest markers and
+part rows. Orbit, zoom, source selection and part expansion remain available.
+Stop resets playback to zero but keeps the inspection view at the stopped
+position so late-arrangement blocks remain visible. Seeking while paused sets
+the next playback position and preserves that scene; Play returns to live
+events. Evaluating a different score clears the previous score's scene.
 
 Enable **rests (~)** to show muted grey blocks between event gates in stage,
 piano roll and wordfall. This is off by default. These are inferred gaps for
