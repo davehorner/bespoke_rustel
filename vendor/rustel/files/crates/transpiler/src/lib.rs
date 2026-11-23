@@ -2916,7 +2916,7 @@ fn rewrite_mini_literals(
                 && !ordinary_strings.contains(index)
                 && (quote == b'"' || (quote == b'`' && !tagged && !interpolated))
             {
-                let value = match decode_js_string(raw, quote == b'`') {
+                let (value, source_map) = match decode_js_string_mapped(raw, quote == b'`') {
                     Ok(value) => value,
                     Err(error) => {
                         diagnostics.push(ParseDiagnostic {
@@ -2930,9 +2930,14 @@ fn rewrite_mini_literals(
                 };
                 if options.emit_mini_locations
                     && let Ok(mut spans) =
-                        rustel_mini::leaf_locations(&value, index + 1 + options.block_offset)
+                        rustel_mini::leaf_locations(&value, 0)
                 {
-                    locations.append(&mut spans);
+                    let base = index + 1 + options.block_offset;
+                    for (start, end) in spans.drain(..) {
+                        if let (Some(first), Some(last)) = (source_map.get(start), end.checked_sub(1).and_then(|at| source_map.get(at))) {
+                            locations.push((base + first.0, base + last.1));
+                        }
+                    }
                 }
                 output.push_str("m(");
                 output.push_str(&quote_single(&value));
@@ -2945,6 +2950,17 @@ fn rewrite_mini_literals(
                     // locations" so its offsets cannot impersonate score
                     // ranges later when a helper returns this pattern.
                     output.push_str("-1");
+                }
+                // Escaped strings have different raw and decoded byte positions.
+                // Keep ordinary m(source, offset) calls unchanged, including
+                // their callback fast path; mapped calls use the native fallback.
+                if options.emit_mini_locations && raw != value {
+                    output.push_str(", [");
+                    for (i, &(from, to)) in source_map.iter().enumerate() {
+                        if i > 0 { output.push(','); }
+                        output.push_str(&format!("[{from},{to}]"));
+                    }
+                    output.push(']');
                 }
                 restore_line_breaks(&mut output, raw);
                 output.push(')');
@@ -3979,10 +3995,19 @@ struct JsStringDecodeError {
     offset: usize,
 }
 
+#[cfg(test)]
 fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStringDecodeError> {
+    decode_js_string_mapped(raw, allow_line_breaks).map(|(value, _)| value)
+}
+
+/// Each decoded UTF-8 byte retains the raw source range that produced it.
+/// Separate starts/ends preserve gaps removed by JS line continuations.
+fn decode_js_string_mapped(raw: &str, allow_line_breaks: bool) -> Result<(String, Vec<(usize, usize)>), JsStringDecodeError> {
     let mut output = String::new();
+    let mut source_map = Vec::new();
     let mut chars = raw.char_indices().peekable();
     while let Some((offset, ch)) = chars.next() {
+        let before = output.len();
         if ch != '\\' {
             if matches!(ch, '\n' | '\r') {
                 // A raw line break is a syntax error inside '' or "", but a
@@ -4005,9 +4030,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                 } else {
                     output.push(ch);
                 }
+                let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
+                source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
                 continue;
             }
             output.push(ch);
+            let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
+            source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
             continue;
         }
         match chars.next().map(|(_, ch)| ch) {
@@ -4052,8 +4081,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                 });
             }
         }
+        let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
+        source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
     }
-    Ok(output)
+    Ok((output, source_map))
 }
 
 /// Decode one `\u` escape, positioned just after the `u`.
@@ -6092,7 +6123,7 @@ mod tests {
         };
         let result = transpile(r#"s(`bd \${snare}`)"#, &options);
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
-        assert_eq!(result.output, "s(m('bd ${snare}', 2));");
+        assert_eq!(result.output, "s(m('bd ${snare}', 2, [\n\t[0, 1],\n\t[1, 2],\n\t[2, 3],\n\t[3, 5],\n\t[5, 6],\n\t[6, 7],\n\t[7, 8],\n\t[8, 9],\n\t[9, 10],\n\t[10, 11],\n\t[11, 12]\n]));");
 
         let language = TranspileOptions {
             add_return: false,
@@ -6292,10 +6323,10 @@ mod tests {
             ("s(`bd\nsd`)", "s(m('bd\\nsd', 2\n))"),
             ("$: `bd\nsd`", "$: m('bd\\nsd', 3\n)"),
             ("mondo`bd\nsd`", "mondo('bd\\nsd', 6\n)"),
-            ("s(`bd\r\nsd`)", "s(m('bd\\nsd', 2\r\n))"),
-            ("s(`bd\rsd`)", "s(m('bd\\nsd', 2\r))"),
+            ("s(`bd\r\nsd`)", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,4],[4,5],[5,6]]\r\n))"),
+            ("s(`bd\rsd`)", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,3],[3,4],[4,5]]\r))"),
             // An escaped `\n` is not a line break.
-            ("s(\"bd\\nsd\")", "s(m('bd\\nsd', 2))"),
+            ("s(\"bd\\nsd\")", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,4],[4,5],[5,6]]))"),
         ] {
             let rewrite = rewrite_mini_literals(
                 source,

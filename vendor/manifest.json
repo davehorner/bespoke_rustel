@@ -134,6 +134,14 @@
           "sha256": "ddf8b5c8bd42e68c6b64954936cbaded8d18405739b81ceba98cb91d95624941"
         },
         {
+          "path": "crates/jsruntime/src/surface/patterns.rs",
+          "sha256": "272a70a7a46c14f372748a344b11d74862c4a0f9ab694c8968024255de53759c"
+        },
+        {
+          "path": "crates/jsruntime/tests/mini_source_alignment.rs",
+          "sha256": "5b1dd5a797bc3f619001b851a1cea778fb362b63291ea90d6ad51f6e3403a2d4"
+        },
+        {
           "path": "crates/jsruntime/tests/music_parts.rs",
           "sha256": "9364c448c7f34e145279b99bc50c761b4862a92e39f6c042e5acd0635d92829c"
         },
@@ -183,11 +191,11 @@
         },
         {
           "path": "crates/transpiler/src/lib.rs",
-          "sha256": "2e15c74e250ec5d1bfab1f78c979b28d4170407b08844a1dd20c518c790225b4"
+          "sha256": "628186871d158bd215a9720460299eeba39b0f4d0597086b34f2a29e998f8897"
         }
       ],
-      "patch_sha256": "0f04b830e94e89e76cc68802f1ea3574063f21be1e65401ded537399b18d2a74",
-      "result_tree": "2fb281d79038e2cf8dd41c90350f2a9eae9a4def"
+      "patch_sha256": "9ad4f618a868a3ce46da47033f8156ac95f8655ceefac48a9c6cd02eb56294af",
+      "result_tree": "4b475cd2105beb62369a9ae222bf98357a7390af"
     },
     {
       "name": "nightshade-viewer",

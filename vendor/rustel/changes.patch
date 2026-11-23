@@ -1206,6 +1206,136 @@ index f780092f3fe2e8f953beb5cd8e8959932925a15f..1ec4340313924358965feea9c8f18101
          options.loaded_imports = self.loaded_imports.borrow().iter().cloned().collect();
          let output = rustel_transpiler::transpile(source, &options);
          if !output.diagnostics.is_empty() {
+diff --git a/crates/jsruntime/src/surface/patterns.rs b/crates/jsruntime/src/surface/patterns.rs
+index da90ac5cd82e5a18d53ca8743005f724999f2197..f58506bb23d8aec12ddf3878e6961dbf230f2031 100644
+--- a/crates/jsruntime/src/surface/patterns.rs
++++ b/crates/jsruntime/src/surface/patterns.rs
+@@ -60,14 +60,41 @@ pub(crate) fn native_gap<'js>(
+     )
+ }
+ 
+-/// The transpiler-facing `m(source, offset)`.
++/// The transpiler-facing `m(source, offset, source_map?)`. Escaped literals
++/// carry decoded-byte to raw-byte ranges so highlights address the written score.
+ pub(crate) fn native_mini<'js>(
+     ctx: Ctx<'js>,
+     source: String,
+     offset: i64,
++    source_map: rquickjs::function::Opt<rquickjs::Array<'js>>,
+ ) -> rquickjs::Result<rquickjs::Class<'js, NativePatternWrapper<'js>>> {
+-    let pattern = transpiled_mini(&source, offset)
++    let mut pattern = transpiled_mini(&source, offset)
+         .map_err(|error| rquickjs::Error::new_from_js_message("string", "Pattern", error))?;
++    if let Some(map) = source_map.0.filter(|_| offset >= 0) {
++        if map.len() != source.len() { return Err(rquickjs::Exception::throw_range(&ctx, "mini source map length mismatch")); }
++        let mut ranges = Vec::new();
++        ranges.try_reserve_exact(map.len()).map_err(|_| rquickjs::Exception::throw_range(&ctx, "mini source map is too large"))?;
++        let base = usize::try_from(offset).ok().and_then(|offset| offset.checked_add(1))
++            .ok_or_else(|| rquickjs::Exception::throw_range(&ctx, "mini source offset is too large"))?;
++        for i in 0..map.len() {
++            let pair: rquickjs::Array = map.get(i)?;
++            if pair.len() != 2 { return Err(rquickjs::Exception::throw_range(&ctx, "invalid mini source range")); }
++            let from: usize = pair.get(0)?;
++            let to: usize = pair.get(1)?;
++            if from > to || to.checked_add(base).is_none() { return Err(rquickjs::Exception::throw_range(&ctx, "invalid mini source range")); }
++            ranges.push((base+from, base+to));
++        }
++        let ranges = std::sync::Arc::new(ranges);
++        let steps = pattern.steps;
++        pattern = pattern.map_haps_native(move |hap| {
++            let context: Vec<_> = hap.context.iter().filter_map(|(from,to)| {
++                let a=from.checked_sub(base)?;
++                let b=to.checked_sub(base)?.checked_sub(1)?;
++                Some((ranges.get(a)?.0,ranges.get(b)?.1))
++            }).collect();
++            Some(hap.clone().with_context(context))
++        }).with_steps(steps);
++    }
+     new_wrapper(&ctx, NativePatternWrapper::plain(pattern))
+ }
+ 
+diff --git a/crates/jsruntime/tests/mini_source_alignment.rs b/crates/jsruntime/tests/mini_source_alignment.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..4560a00955c9f0ee1fb5a2e47c3d89cb9f1a0e73
+--- /dev/null
++++ b/crates/jsruntime/tests/mini_source_alignment.rs
+@@ -0,0 +1,76 @@
++use rustel_fraction::Fraction;
++use rustel_jsruntime::{JsRuntime, Slot};
++use rustel_transpiler::{TranspileOptions, transpile};
++
++fn assert_tokens(source: &str, expected: &[&str]) {
++    let runtime = JsRuntime::new().unwrap();
++    runtime.install_semantic_bindings().unwrap();
++    runtime
++        .evaluate_score(source, &TranspileOptions::default())
++        .unwrap();
++    let haps = runtime
++        .query(Slot::Active, 0, Fraction::ZERO, Fraction::ONE)
++        .unwrap();
++    let actual = haps
++        .iter()
++        .map(|hap| {
++            let (a, b) = hap.context.first().expect("sourced event");
++            source
++                .get(a..b)
++                .expect("UTF-8 source boundaries")
++                .to_owned()
++        })
++        .collect::<Vec<_>>();
++    assert_eq!(actual, expected, "{source}");
++    let output = transpile(source, &TranspileOptions::default());
++    let decorations = output
++        .mini_locations
++        .iter()
++        .map(|&(a, b)| &source[a..b])
++        .filter(|token| *token != "~")
++        .collect::<Vec<_>>();
++    assert_eq!(
++        decorations, expected,
++        "editor spans must match accepted hap spans"
++    );
++}
++
++#[test]
++fn continuations_keep_spaces_and_note_ranges_aligned() {
++    assert_tokens(
++        "note(\"a2  e3 \\\n    f2   c3 \\\n    g2 d3\")",
++        &["a2", "e3", "f2", "c3", "g2", "d3"],
++    );
++    assert_tokens("note(\"a2 \\\r\n    f2   c3\")", &["a2", "f2", "c3"]);
++    // Mapped mini calls inside callbacks must retain the map through the JS bridge.
++    assert_tokens(
++        "pure(1).layer(x => note(\"a2 \\\n    e3\"))",
++        &["a2", "e3"],
++    );
++}
++
++#[test]
++fn escaped_whitespace_and_unicode_use_raw_source_ranges() {
++    // Mini intentionally retains tabs/newlines at leaf ends for compatibility.
++    assert_tokens(
++        r#"note("c3\t  \u00653  \x673")"#,
++        &[r"c3\t", r"\u00653", r"\x673"],
++    );
++    assert_tokens(
++        "// é before the string\nnote(`c3\r\n  e3\r\n g3`)",
++        &["c3\r\n", "e3\r\n", "g3"],
++    );
++    assert_tokens(r#"s("bd é \u00e9")"#, &["bd", "é", r"\u00e9"]);
++}
++
++#[test]
++fn bass_recording_fixture_aligns_every_leaf_after_continuations() {
++    let source = "note(\"[a2 ~ e3 a2 e3 ~ g2 e3] \\\n   [f2 ~ c3 f2 c3 ~ e2 c3] \\\n   [c3 ~ g3 c3 g2 ~ b2 g2] \\\n   [g2 ~ d3 g2 d3 ~ b2 d3]\")";
++    assert_tokens(
++        source,
++        &[
++            "a2", "e3", "a2", "e3", "g2", "e3", "f2", "c3", "f2", "c3", "e2", "c3", "c3", "g3",
++            "c3", "g2", "b2", "g2", "g2", "d3", "g2", "d3", "b2", "d3",
++        ],
++    );
++}
 diff --git a/crates/jsruntime/tests/music_parts.rs b/crates/jsruntime/tests/music_parts.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..904bf14f9df6aa26ce13d8d90b88d75dd4057f48
@@ -2119,7 +2249,7 @@ index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf
          // the browser asks, whatever the score's own visuals are doing. The
          // score's own taps follow the audible layout: the reset below records
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index d95e54846f2a0774f878351c3a52b33ae1f43b9e..3c83f74b6c2ceb35a9737c79140512b59198c34a 100644
+index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa5a16250f 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
 @@ -980,6 +980,8 @@ pub struct TranspileOptions {
@@ -2233,7 +2363,97 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..3c83f74b6c2ceb35a9737c79140512b5
      let mut parsed = parse_and_print_as(&samples, SourceType::mjs(), ModuleSyntax::of(options));
      // The parser read the rewritten text; the score is what the reader sees.
      for diagnostic in &mut parsed.diagnostics {
-@@ -4706,6 +4746,15 @@ mod tests {
+@@ -2876,7 +2916,7 @@ fn rewrite_mini_literals(
+                 && !ordinary_strings.contains(index)
+                 && (quote == b'"' || (quote == b'`' && !tagged && !interpolated))
+             {
+-                let value = match decode_js_string(raw, quote == b'`') {
++                let (value, source_map) = match decode_js_string_mapped(raw, quote == b'`') {
+                     Ok(value) => value,
+                     Err(error) => {
+                         diagnostics.push(ParseDiagnostic {
+@@ -2890,9 +2930,14 @@ fn rewrite_mini_literals(
+                 };
+                 if options.emit_mini_locations
+                     && let Ok(mut spans) =
+-                        rustel_mini::leaf_locations(&value, index + 1 + options.block_offset)
++                        rustel_mini::leaf_locations(&value, 0)
+                 {
+-                    locations.append(&mut spans);
++                    let base = index + 1 + options.block_offset;
++                    for (start, end) in spans.drain(..) {
++                        if let (Some(first), Some(last)) = (source_map.get(start), end.checked_sub(1).and_then(|at| source_map.get(at))) {
++                            locations.push((base + first.0, base + last.1));
++                        }
++                    }
+                 }
+                 output.push_str("m(");
+                 output.push_str(&quote_single(&value));
+@@ -2906,6 +2951,17 @@ fn rewrite_mini_literals(
+                     // ranges later when a helper returns this pattern.
+                     output.push_str("-1");
+                 }
++                // Escaped strings have different raw and decoded byte positions.
++                // Keep ordinary m(source, offset) calls unchanged, including
++                // their callback fast path; mapped calls use the native fallback.
++                if options.emit_mini_locations && raw != value {
++                    output.push_str(", [");
++                    for (i, &(from, to)) in source_map.iter().enumerate() {
++                        if i > 0 { output.push(','); }
++                        output.push_str(&format!("[{from},{to}]"));
++                    }
++                    output.push(']');
++                }
+                 restore_line_breaks(&mut output, raw);
+                 output.push(')');
+                 map.resume(end, output.len());
+@@ -3939,10 +3995,19 @@ struct JsStringDecodeError {
+     offset: usize,
+ }
+ 
++#[cfg(test)]
+ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStringDecodeError> {
++    decode_js_string_mapped(raw, allow_line_breaks).map(|(value, _)| value)
++}
++
++/// Each decoded UTF-8 byte retains the raw source range that produced it.
++/// Separate starts/ends preserve gaps removed by JS line continuations.
++fn decode_js_string_mapped(raw: &str, allow_line_breaks: bool) -> Result<(String, Vec<(usize, usize)>), JsStringDecodeError> {
+     let mut output = String::new();
++    let mut source_map = Vec::new();
+     let mut chars = raw.char_indices().peekable();
+     while let Some((offset, ch)) = chars.next() {
++        let before = output.len();
+         if ch != '\\' {
+             if matches!(ch, '\n' | '\r') {
+                 // A raw line break is a syntax error inside '' or "", but a
+@@ -3965,9 +4030,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+                 } else {
+                     output.push(ch);
+                 }
++                let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
++                source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
+                 continue;
+             }
+             output.push(ch);
++            let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
++            source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
+             continue;
+         }
+         match chars.next().map(|(_, ch)| ch) {
+@@ -4012,8 +4081,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+                 });
+             }
+         }
++        let end = chars.peek().map_or(raw.len(), |&(at, _)| at);
++        source_map.extend(std::iter::repeat_n((offset, end), output.len() - before));
+     }
+-    Ok(output)
++    Ok((output, source_map))
+ }
+ 
+ /// Decode one `\u` escape, positioned just after the `u`.
+@@ -4706,6 +4777,15 @@ mod tests {
          }
      }
  
@@ -2249,7 +2469,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..3c83f74b6c2ceb35a9737c79140512b5
      #[test]
      fn setup_definitions_list_top_level_declarations_with_their_spans() {
          let source = "const a = 1, b = 2\nlet c\nvar d\nfunction e() {}\nclass F {}\nif (a) { const inner = 1 }\nconst [x] = [1]\n";
-@@ -6026,6 +6075,7 @@ mod tests {
+@@ -6026,6 +6106,7 @@ mod tests {
          assert_eq!(transpile(r"fo\u{6f}`a b`", &options).output, "foo`a b`;");
          let located = TranspileOptions {
              emit_mini_locations: true,
@@ -2257,3 +2477,26 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..3c83f74b6c2ceb35a9737c79140512b5
              ..options
          };
          assert_eq!(
+@@ -6042,7 +6123,7 @@ mod tests {
+         };
+         let result = transpile(r#"s(`bd \${snare}`)"#, &options);
+         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+-        assert_eq!(result.output, "s(m('bd ${snare}', 2));");
++        assert_eq!(result.output, "s(m('bd ${snare}', 2, [\n\t[0, 1],\n\t[1, 2],\n\t[2, 3],\n\t[3, 5],\n\t[5, 6],\n\t[6, 7],\n\t[7, 8],\n\t[8, 9],\n\t[9, 10],\n\t[10, 11],\n\t[11, 12]\n]));");
+ 
+         let language = TranspileOptions {
+             add_return: false,
+@@ -6242,10 +6323,10 @@ mod tests {
+             ("s(`bd\nsd`)", "s(m('bd\\nsd', 2\n))"),
+             ("$: `bd\nsd`", "$: m('bd\\nsd', 3\n)"),
+             ("mondo`bd\nsd`", "mondo('bd\\nsd', 6\n)"),
+-            ("s(`bd\r\nsd`)", "s(m('bd\\nsd', 2\r\n))"),
+-            ("s(`bd\rsd`)", "s(m('bd\\nsd', 2\r))"),
++            ("s(`bd\r\nsd`)", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,4],[4,5],[5,6]]\r\n))"),
++            ("s(`bd\rsd`)", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,3],[3,4],[4,5]]\r))"),
+             // An escaped `\n` is not a line break.
+-            ("s(\"bd\\nsd\")", "s(m('bd\\nsd', 2))"),
++            ("s(\"bd\\nsd\")", "s(m('bd\\nsd', 2, [[0,1],[1,2],[2,4],[4,5],[5,6]]))"),
+         ] {
+             let rewrite = rewrite_mini_literals(
+                 source,

@@ -375,6 +375,10 @@ full document. Ranges use UTF-8 byte offsets from Rustel's existing Hap context;
 selecting a lane limits which events highlight the code. Wrapped lines and source
 scrolling retain the original offsets. Helpers elsewhere in the document can also
 highlight when their source context survives pattern composition.
+JavaScript string escapes and backslash line continuations are mapped back to
+their original source bytes, including Windows CRLF endings and indentation.
+This mapping is produced by Rustel for both viewers; after updating Rustel,
+restart the player and reevaluate the score to replace older event positions.
 
 Choose **control curves** in the view dropdown for per-lane gain, pan, cutoff and
 resonance. Dots are values resolved at scheduled note onsets; step lines connect
