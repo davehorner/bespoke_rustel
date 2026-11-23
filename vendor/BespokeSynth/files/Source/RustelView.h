@@ -61,6 +61,8 @@ private:
    int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
    std::string mSourceFocusName;
    std::string mSelectedLane, mSelectedPart;
+   std::string mSoloLane;
+   std::string SoloTarget() const;
    int SelectedRow() const;
    int EventRow(const Event& event) const;
    ofColor RowColor(int row) const;

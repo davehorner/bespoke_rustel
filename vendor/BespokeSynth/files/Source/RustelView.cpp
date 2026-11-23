@@ -93,8 +93,9 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
    }
    if (list == mSessions)
    {
-      if (mSolo) RustelLink::Solo(mSessionId, mGeneration, mLaneId, false);
+      if (!mSoloLane.empty()) RustelLink::Solo(mSessionId, mGeneration, mSoloLane, false);
       mSolo = false;
+      mSoloLane.clear();
       mSessionId = mSessionIndex >= 0 && mSessionIndex < int(mSessionIds.size()) ? mSessionIds[mSessionIndex] : "";
       mGeneration = -1;
       mLaneId.clear();
@@ -114,12 +115,7 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
    }
    if (list == mLanePicker)
    {
-      auto previous = mLaneId;
       mLaneId = mLaneIndex >= 0 && mLaneIndex < int(mLanes.size()) ? mLanes[mLaneIndex].id : "";
-      if (mSolo) {
-         if (mLaneId.empty()) { RustelLink::Solo(mSessionId, mGeneration, previous, false); mSolo = false; }
-         else RustelLink::Solo(mSessionId, mGeneration, mLaneId, true);
-      }
       mSourceScroll = 0;
       if (!mLaneId.empty()) RevealSource(mLaneId, "");
    }
@@ -160,7 +156,8 @@ void RustelView::Poll()
    if (!std::isfinite(cycle) || !std::isfinite(cps) || cps <= 0)
       return;
    mLive = true;
-   mSolo = !mLaneId.empty() && session["solo_lane"].toString().toStdString() == mLaneId;
+   mSoloLane = session["solo_lane"].toString().toStdString();
+   mSolo = !mSoloLane.empty();
    PollAudio();
    if (generation == mGeneration && cycle == mCycle)
       return;
@@ -251,12 +248,20 @@ void RustelView::Poll()
       }
 }
 
+std::string RustelView::SoloTarget() const
+{
+   for (const auto& id : { mSelectedLane, mLaneId })
+      if (!id.empty() && std::any_of(mLanes.begin(), mLanes.end(), [&](const Lane& lane) { return lane.id == id; })) return id;
+   return "";
+}
+
 void RustelView::RevealSource(const std::string& laneId, const std::string& part)
 {
    const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
    if (lane == mLanes.end() || mDocument.empty()) return;
    mSelectedLane = laneId;
    mSelectedPart = part;
+   if (mSolo && mLive && mSoloLane != laneId) RustelLink::Solo(mSessionId, mGeneration, laneId, true);
    auto expression = juce::String(lane->source).trim();
    auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
    if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
@@ -773,8 +778,9 @@ void RustelView::CheckboxUpdated(Checkbox* checkbox, double)
       return;
    }
    if (checkbox != mSoloCheckbox) return;
-   if (mLaneId.empty() || !mLive) { mSolo = false; return; }
-   RustelLink::Solo(mSessionId, mGeneration, mLaneId, mSolo);
+   const auto target = !mSolo && !mSoloLane.empty() ? mSoloLane : SoloTarget();
+   if (target.empty() || !mLive) { mSolo = false; return; }
+   RustelLink::Solo(mSessionId, mGeneration, target, mSolo);
 }
 
 void RustelView::ButtonClicked(ClickButton* button, double time)
@@ -838,6 +844,8 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
    mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
    mSourceButtons.clear();
    mRowButtons.clear();
+   mSoloLane.clear();
+   mSolo = false;
    mViewMode = std::clamp(mViewMode, 0, 8);
    mLanes.clear();
    mEvents.clear();

@@ -42,9 +42,21 @@ pub fn solo(state: ViewerState, lane: String, enabled: bool) {
         state.music_control_status.set("Applying solo…".into());
     } else { state.music_control_status.set("Solo command could not reach Rustel".into()); }
 }
+fn solo_target(state: ViewerState) -> String {
+    let selected=state.music_source_focus.with(|focus|focus.as_ref().map(|f|f.0.clone()).unwrap_or_default());
+    let filter=state.music_lane.get();
+    let session=state.music_session.get();
+    state.music.with(|s| {
+        let Some(s)=s.as_ref().filter(|s|s.session==session) else {return String::new()};
+        [selected,filter].into_iter().find(|id|!id.is_empty()&&s.lanes.iter().any(|l|l.id==*id)).unwrap_or_default()
+    })
+}
+fn active_solo(state: ViewerState) -> Option<String> {
+    let session=state.music_session.get();
+    state.music.with(|s|s.as_ref().filter(|s|s.session==session).and_then(|s|s.solo_lane.clone()))
+}
 fn selected_is_solo(state: ViewerState) -> bool {
-    let lane = state.music_lane.get_untracked();
-    !lane.is_empty() && state.music.get_untracked().is_some_and(|s| s.solo_lane.as_deref() == Some(&lane))
+    active_solo(state).is_some()
 }
 
 pub fn enabled() -> bool {
@@ -70,8 +82,10 @@ pub fn reveal_source(state: ViewerState, lane: &str, part: &str) {
         Some(if snapshot.bindings.iter().any(|b|b.name==root) {root} else {String::new()})
     });
     let Some(target)=target else{return};
+    let follow=active_solo(state).is_some_and(|active| active!=lane);
     let next = state.music_source_focus.with_untracked(|focus| focus.as_ref().map_or(1, |f| f.2.wrapping_add(1)));
     state.music_source_focus.set(Some((lane.to_owned(), target, next)));
+    if follow {solo(state,lane.to_owned(),true);}
 }
 
 pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
@@ -160,6 +174,7 @@ pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
         if !seen.contains_key(&selected) {
             state.music_session.set(snapshot.session.clone());
             state.music_lane.set(String::new());
+            state.music_source_focus.set(None);
             state.music_audio.set(None);
         }
         if snapshot.session != state.music_session.get_untracked() {
@@ -186,6 +201,7 @@ pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
         state.music.set(None);
         state.music_audio.set(None);
         state.music_session.set(String::new());
+        state.music_source_focus.set(None);
         state.music_sessions.set(Vec::new());
         let next_bridge = bridge.clone();
         let retry = Closure::once_into_js(move || connect(next_bridge, state));
@@ -266,7 +282,7 @@ pub fn MusicPanel(
                     <div class="music-help">{move || state.music_status.get()}</div>
                     <div class="music-help">{move || state.music_control_status.get()}</div>
                     <select class="music-select" prop:value=move || state.music_session.get()
-                        on:change=move |event| { if selected_is_solo(state) { solo(state,state.music_lane.get_untracked(),false); } state.music_session.set(event_target_value(&event)); state.music_lane.set(String::new()); state.music_audio.set(None); }>
+                        on:change=move |event| { if let Some(lane)=active_solo(state) { solo(state,lane,false); } state.music_session.set(event_target_value(&event)); state.music_lane.set(String::new()); state.music_source_focus.set(None); state.music_audio.set(None); }>
                         {move || state.music_sessions.get().into_iter().map(|id| view! { <option value=id.clone()>{id.clone()}</option> }).collect_view()}
                     </select>
                 </div>
@@ -281,10 +297,9 @@ pub fn MusicPanel(
                     </select>
                     <select class="music-select" aria-label="Lane filter" prop:value=move || state.music_lane.get()
                         on:change=move |e| {
-                            let old=state.music_lane.get_untracked(); let active=selected_is_solo(state); let lane=event_target_value(&e);
+                            let lane=event_target_value(&e);
                             state.music_lane.set(lane.clone());
                             if !lane.is_empty() { reveal_source(state, &lane, ""); }
-                            if active { if lane.is_empty() { solo(state,old,false); } else { solo(state,lane,true); } }
                         }>
                         <option value="">"All lanes"</option>
                         <For each=move || state.music.get().map(|s| s.lanes).unwrap_or_default() key=|lane| lane.id.clone()
@@ -294,9 +309,9 @@ pub fn MusicPanel(
                         {move || if orbit.get() { "ORBIT ON" } else { "ORBIT OFF" }}
                     </button>
                     <label class="music-select" style="margin-top:0;white-space:nowrap">
-                        <input aria-label="Solo selected lane" type="checkbox" disabled=move || state.music_lane.get().is_empty()
-                            prop:checked=move || { let lane=state.music_lane.get(); state.music.get().is_some_and(|s| !lane.is_empty() && s.solo_lane.as_deref()==Some(&lane)) }
-                            on:change=move |e| solo(state, state.music_lane.get_untracked(), event_target_checked(&e)) />
+                        <input aria-label="Solo selected lane" type="checkbox" disabled=move || solo_target(state).is_empty() && !selected_is_solo(state)
+                            prop:checked=move || selected_is_solo(state)
+                            on:change=move |e| { let enabled=event_target_checked(&e); let lane=if enabled {solo_target(state)} else {active_solo(state).unwrap_or_else(||solo_target(state))}; solo(state,lane,enabled); } />
                         " Solo"
                     </label>
                 </div>
@@ -342,7 +357,11 @@ pub fn MusicPanel(
                                 <details node_ref=focus_details on:toggle=move |event| {
                                     use wasm_bindgen::JsCast;
                                     if let Some(element) = event.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
-                                        expanded.set(element.has_attribute("open"));
+                                        let open=element.has_attribute("open");
+                                        expanded.set(open);
+                                        if open && !state.music_source_focus.with_untracked(|focus| focus.as_ref().is_some_and(|f| source_lane.with_value(|id| &f.0==id))) {
+                                            source_lane.with_value(|id| reveal_source(state,id,""));
+                                        }
                                     }
                                 }>
                                     <summary class="music-lane-name" style:color=palette[i % 8]>

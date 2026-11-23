@@ -860,10 +860,10 @@ index 0000000000000000000000000000000000000000..0636913fa7ea5c1470470dd5407ce34a
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97df9f4178
+index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89fcfc27b04
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,976 @@
+@@ -0,0 +1,984 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -959,8 +959,9 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +   }
 +   if (list == mSessions)
 +   {
-+      if (mSolo) RustelLink::Solo(mSessionId, mGeneration, mLaneId, false);
++      if (!mSoloLane.empty()) RustelLink::Solo(mSessionId, mGeneration, mSoloLane, false);
 +      mSolo = false;
++      mSoloLane.clear();
 +      mSessionId = mSessionIndex >= 0 && mSessionIndex < int(mSessionIds.size()) ? mSessionIds[mSessionIndex] : "";
 +      mGeneration = -1;
 +      mLaneId.clear();
@@ -980,12 +981,7 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +   }
 +   if (list == mLanePicker)
 +   {
-+      auto previous = mLaneId;
 +      mLaneId = mLaneIndex >= 0 && mLaneIndex < int(mLanes.size()) ? mLanes[mLaneIndex].id : "";
-+      if (mSolo) {
-+         if (mLaneId.empty()) { RustelLink::Solo(mSessionId, mGeneration, previous, false); mSolo = false; }
-+         else RustelLink::Solo(mSessionId, mGeneration, mLaneId, true);
-+      }
 +      mSourceScroll = 0;
 +      if (!mLaneId.empty()) RevealSource(mLaneId, "");
 +   }
@@ -1026,7 +1022,8 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +   if (!std::isfinite(cycle) || !std::isfinite(cps) || cps <= 0)
 +      return;
 +   mLive = true;
-+   mSolo = !mLaneId.empty() && session["solo_lane"].toString().toStdString() == mLaneId;
++   mSoloLane = session["solo_lane"].toString().toStdString();
++   mSolo = !mSoloLane.empty();
 +   PollAudio();
 +   if (generation == mGeneration && cycle == mCycle)
 +      return;
@@ -1117,12 +1114,20 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +      }
 +}
 +
++std::string RustelView::SoloTarget() const
++{
++   for (const auto& id : { mSelectedLane, mLaneId })
++      if (!id.empty() && std::any_of(mLanes.begin(), mLanes.end(), [&](const Lane& lane) { return lane.id == id; })) return id;
++   return "";
++}
++
 +void RustelView::RevealSource(const std::string& laneId, const std::string& part)
 +{
 +   const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
 +   if (lane == mLanes.end() || mDocument.empty()) return;
 +   mSelectedLane = laneId;
 +   mSelectedPart = part;
++   if (mSolo && mLive && mSoloLane != laneId) RustelLink::Solo(mSessionId, mGeneration, laneId, true);
 +   auto expression = juce::String(lane->source).trim();
 +   auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
 +   if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
@@ -1639,8 +1644,9 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +      return;
 +   }
 +   if (checkbox != mSoloCheckbox) return;
-+   if (mLaneId.empty() || !mLive) { mSolo = false; return; }
-+   RustelLink::Solo(mSessionId, mGeneration, mLaneId, mSolo);
++   const auto target = !mSolo && !mSoloLane.empty() ? mSoloLane : SoloTarget();
++   if (target.empty() || !mLive) { mSolo = false; return; }
++   RustelLink::Solo(mSessionId, mGeneration, target, mSolo);
 +}
 +
 +void RustelView::ButtonClicked(ClickButton* button, double time)
@@ -1704,6 +1710,8 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +   mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
 +   mSourceButtons.clear();
 +   mRowButtons.clear();
++   mSoloLane.clear();
++   mSolo = false;
 +   mViewMode = std::clamp(mViewMode, 0, 8);
 +   mLanes.clear();
 +   mEvents.clear();
@@ -1842,10 +1850,10 @@ index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..eb357e9ec7dab056b2a822e200f4bb2a159b52a8
+index 0000000000000000000000000000000000000000..2c650525b7084377f0c0c1463d4a9679c6dc7c63
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,116 @@
 +#pragma once
 +
 +#include "IDrawableModule.h"
@@ -1909,6 +1917,8 @@ index 0000000000000000000000000000000000000000..eb357e9ec7dab056b2a822e200f4bb2a
 +   int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
 +   std::string mSourceFocusName;
 +   std::string mSelectedLane, mSelectedPart;
++   std::string mSoloLane;
++   std::string SoloTarget() const;
 +   int SelectedRow() const;
 +   int EventRow(const Event& event) const;
 +   ofColor RowColor(int row) const;

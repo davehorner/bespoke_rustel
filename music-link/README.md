@@ -423,11 +423,14 @@ view with twelve fixed pitch-class directions and octave-dependent radius.
 
 ### Solo selected lane
 
-Both viewers replace the source-trace toggle with **Solo**. Select a lane first,
-then check Solo to audition that lane in the running Rustel session. Changing
-lanes while solo is active moves audition to the new lane. Unchecking Solo or
-selecting All lanes restores normal playback. Solo is one shared setting per
-Rustel session; both viewers reflect the current selected lane's solo state.
+Both viewers provide **Solo** for the selected playback lane. Click a lane number
+or name, or choose a lane in the filter, then check Solo to audition it in Rustel.
+**All lanes** controls visibility: Solo remains available when a lane is selected,
+and returning to All lanes preserves both selection and active Solo. Clicking a
+different lane while Solo is active moves audition to that lane. Uncheck Solo to
+restore normal playback. Virtual-part selections audition their playback parent.
+Solo is shared per Rustel session; both viewers reflect its active state and can
+release it even if the view filter is All lanes.
 Other lanes remain in telemetry so visualization and lane selection keep working.
 
 Solo uses the existing generation-checked command/acknowledgement channel and
