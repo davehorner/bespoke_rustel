@@ -1,8 +1,14 @@
 {
   "modules": [
-    { "name": "rustel view", "type": "rustelview", "position": [30, 110] },
-    { "name": "rustel source", "type": "rustelpattern", "position": [790, 140], "target": "transpose" },
-    { "name": "transpose", "type": "rusteltranspose", "position": [790, 260] }
+    { "name": "transport", "type": "transport", "position": [14, 95] },
+    { "name": "scale", "type": "scale", "position": [178, 95] },
+    { "name": "rustel view", "type": "rustelview", "position": [30, 230] },
+    { "name": "rustel source", "type": "rustelpattern", "position": [980, 250], "target": "transpose" },
+    { "name": "transpose", "type": "rusteltranspose", "position": [980, 370] },
+    { "name": "gain", "type": "gain", "position": [1000, 520], "target": "splitter" },
+    { "name": "splitter", "type": "splitter", "position": [1020, 630], "target": "output 1", "target2": "output 2" },
+    { "name": "output 1", "type": "output", "position": [980, 700], "channels": 0 },
+    { "name": "output 2", "type": "output", "position": [1080, 700], "channels": 1 }
   ],
   "zoomlocations": []
 }

@@ -27,6 +27,10 @@ For demo purposes, the launcher disables the welcome overlay in its dedicated
 Bespoke preferences file. Normal Bespoke preferences are unchanged.
 The demo patch opens with `rustel source` already connected to `transpose`;
 select a live lane in the source node to use it.
+The demo layout includes Bespoke's native transport and scale at the top and
+its normal gain → splitter → stereo output modules on the right. The Rustel
+viewer sits below the transport, with source and transpose nodes in a separate
+right-hand column so their modules do not cover the viewer.
 
 After pulling integration updates, the launcher applies the current vendored
 sources and rebuilds binaries and the web viewer when their inputs are newer.
