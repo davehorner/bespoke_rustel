@@ -160,6 +160,38 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(build_inputs.needs_build("one", artifact, self.root))
 
 
+class RustelStartupTests(unittest.TestCase):
+    def test_waits_past_the_old_deadline_for_the_selected_players_lanes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            launcher = start.Launcher(Path(directory))
+            clock = 0.0
+
+            def sleep(seconds):
+                nonlocal clock
+                clock += seconds
+
+            def sessions():
+                return [{"session": "rustel-123-other", "lanes": [{}]},
+                        {"session": "rustel-12-selected", "lanes": [{}] if clock >= 60 else []}]
+
+            with mock.patch.object(start, "live_record", return_value=True), \
+                 mock.patch.object(start, "hub_state", side_effect=sessions), \
+                 mock.patch.object(start.time, "monotonic", side_effect=lambda: clock), \
+                 mock.patch.object(start.time, "sleep", side_effect=sleep), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                launcher.wait_for_rustel_lanes({"pid": 12})
+            self.assertGreaterEqual(clock, 60)
+
+    def test_reports_when_player_exits_while_waiting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            launcher = start.Launcher(Path(directory))
+            with mock.patch.object(start, "live_record", side_effect=[True, False]), \
+                 mock.patch.object(start, "hub_state", return_value=[]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "exited before publishing lanes.*rustel-error.log"):
+                    launcher.wait_for_rustel_lanes({"pid": 12})
+
+
 class ViewerStartupTests(unittest.TestCase):
     def test_relaunch_reopens_browser_and_prints_url_despite_old_saved_flag(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -200,6 +232,38 @@ class ViewerStartupTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform in ("linux", "darwin"), "POSIX process identity")
 class ProcessTests(unittest.TestCase):
+    def test_darwin_zombie_is_not_a_live_process(self):
+        with mock.patch.object(start.sys, "platform", "darwin"), \
+             mock.patch.object(start.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="Z Sun Nov 22 22:47:00 2026 /path with spaces/rustel\n")):
+            self.assertIsNone(start.process_identity(42))
+
+    def test_stop_attempts_bespoke_and_hub_even_if_rustel_times_out(self):
+        launcher = start.Launcher()
+        bespoke = {"role": "bespoke", "pid": 1, "owned": True}
+        rustel = {"role": "rustel", "pid": 2, "owned": True}
+        hub = {"role": "hub", "pid": 3, "owned": True}
+        launcher.state["processes"] = [hub, rustel, bespoke]
+
+        def wait_for_exit(check, timeout, message):
+            if timeout == 15:
+                raise RuntimeError(message)
+
+        with mock.patch.object(start.sys, "platform", "darwin"), \
+             mock.patch.object(start, "hub_state", return_value=[
+                 {"session": "rustel-2-test", "lane_audio": {"mapping": "/rla-2-1"}}]), \
+             mock.patch.object(start, "live_record", return_value=True), \
+             mock.patch.object(start, "quit_bespoke") as quit_bespoke, \
+             mock.patch.object(start.os, "kill") as kill, \
+             mock.patch.object(start, "wait_for", side_effect=wait_for_exit), \
+             mock.patch.object(start, "unlink_stopped_mapping") as unlink, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "Rustel .* is still running"):
+                launcher.stop()
+        quit_bespoke.assert_called_once_with(bespoke)
+        self.assertEqual(kill.call_args_list, [mock.call(2, signal.SIGTERM), mock.call(3, signal.SIGTERM)])
+        unlink.assert_not_called()
+
     def test_reused_pid_identity_does_not_authorize_stop(self):
         with subprocess.Popen([sys.executable, "-c", "import time;print('ready',flush=True);time.sleep(10)"],
                               stdout=subprocess.PIPE, text=True) as process:

@@ -17,6 +17,10 @@ from build_inputs import needs_build
 
 ROOT = Path(__file__).resolve().parent.parent
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+# Rustel can spend 60 seconds preloading samples before its first publication.
+RUSTEL_LANE_TIMEOUT = 90
+RUSTEL_PROFILE = "local" if sys.platform == "darwin" else "dev"
+RUSTEL_OUTPUT = "local" if RUSTEL_PROFILE == "local" else "debug"
 
 
 def process_identity(pid):
@@ -29,13 +33,13 @@ def process_identity(pid):
                 return None
             return {"started": fields[19], "executable": str((proc / "exe").resolve(strict=True))}
         if sys.platform == "darwin":
-            result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart=", "-o", "comm="],
+            result = subprocess.run(["ps", "-p", str(pid), "-o", "state=", "-o", "lstart=", "-o", "comm="],
                                     capture_output=True, text=True, timeout=2)
-            # lstart has five whitespace-separated fields; the remainder is comm.
-            parts = result.stdout.strip().split(None, 5)
-            if result.returncode or len(parts) != 6:
+            # State precedes the five lstart fields and the executable path.
+            parts = result.stdout.strip().split(None, 6)
+            if result.returncode or len(parts) != 7 or parts[0].startswith("Z"):
                 return None
-            return {"started": " ".join(parts[:5]), "executable": str(Path(parts[5]).resolve())}
+            return {"started": " ".join(parts[1:6]), "executable": str(Path(parts[6]).resolve())}
     except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
         pass
     return None
@@ -43,6 +47,30 @@ def process_identity(pid):
 
 def live_record(record):
     return process_identity(record["pid"]) == record["identity"]
+
+
+def quit_bespoke(record):
+    # Ask the exact running app to quit through AppKit's normal quit path.
+    script = """
+    ObjC.import('AppKit');
+    function run(argv) {
+        const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(argv[0]));
+        return !app.isNil() && ObjC.unwrap(app.executableURL.path) === argv[1] && app.terminate;
+    }
+    """
+
+    def request():
+        if not live_record(record):
+            return True
+        result = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", script,
+                                 str(record["pid"]), record["identity"]["executable"]],
+                                capture_output=True, text=True, timeout=3)
+        if result.returncode:
+            raise RuntimeError(f"Could not quit Bespoke. {result.stderr.strip()}")
+        return result.stdout.strip() == "true"
+
+    # A newly spawned process may take a moment to register with AppKit.
+    wait_for(request, 5, f"Bespoke (PID {record['pid']}) did not accept a normal quit request")
 
 
 def find_existing(executable):
@@ -174,28 +202,42 @@ class Launcher:
 
     def stop(self):
         streams = hub_state() or []
-        for record in sorted(self.state["processes"], key=lambda r: r["role"] == "hub"):
+        errors = []
+        # Keep the hub available while clients shut down.
+        order = {"bespoke": 0, "hub": 2}
+        for record in sorted(self.state["processes"], key=lambda r: order.get(r["role"], 1)):
             if not live_record(record):
                 continue
-            if not record["owned"] or record["role"] == "bespoke":
-                print(f"Leaving {record['role']} open (PID {record['pid']}); close Bespoke normally to preserve patches")
+            role, pid = record["role"], record["pid"]
+            if not record["owned"]:
+                print(f"Leaving reused {role} open (PID {pid})")
+                continue
+            if role == "bespoke" and sys.platform != "darwin":
+                print(f"Leaving bespoke open (PID {pid}); close its window to quit")
                 continue
             try:
-                os.kill(record["pid"], signal.SIGTERM)
-            except ProcessLookupError:
-                continue
-            for child in self.children:
-                if child.pid == record["pid"]:
+                if role == "bespoke":
+                    quit_bespoke(record)
+                else:
                     try:
-                        child.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
+                        os.kill(pid, signal.SIGTERM)
+                    except ProcessLookupError:
                         pass
-            print(f"Requested stop: {record['role']} (PID {record['pid']})")
-            if record["role"] == "rustel":
-                wait_for(lambda: not live_record(record), 4, "Rustel has not stopped; shared memory was left intact")
-                for session in streams:
-                    if session["session"].startswith(f"rustel-{record['pid']}-") and session.get("lane_audio"):
-                        unlink_stopped_mapping(session["lane_audio"]["mapping"], record["pid"])
+                print(f"Requested stop: {role} (PID {pid})", flush=True)
+                # Rustel allows up to eight seconds for the audio tail alone.
+                failure = (f"Rustel (PID {pid}) is still running; its shared memory was left intact"
+                           if role == "rustel" else f"{role} (PID {pid}) is still running")
+                child = next((child for child in self.children if child.pid == pid), None)
+                wait_for(lambda: child.poll() is not None if child is not None else not live_record(record),
+                         15 if role == "rustel" else 5, failure)
+                if role == "rustel":
+                    for session in streams:
+                        if session["session"].startswith(f"rustel-{pid}-") and session.get("lane_audio"):
+                            unlink_stopped_mapping(session["lane_audio"]["mapping"], pid)
+            except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+                errors.append(str(error))
+        if errors:
+            raise RuntimeError("\n".join(errors))
 
     def status(self):
         for record in self.state["processes"]:
@@ -206,6 +248,20 @@ class Launcher:
             raise RuntimeError("Music hub unavailable")
         for session in sessions:
             print(f"{session['session']}: {len(session.get('lanes', []))} lanes")
+
+    def wait_for_rustel_lanes(self, player):
+        prefix = f"rustel-{player['pid']}-"
+        log = self.logs / "rustel-error.log"
+
+        def ready():
+            if not live_record(player):
+                raise RuntimeError(f"Rustel exited before publishing lanes; see {log}")
+            return any(s["session"].startswith(prefix) and s.get("lanes") for s in (hub_state() or []))
+
+        if not ready():
+            print("Waiting for Rustel lanes. Cold sample downloads can delay startup.", flush=True)
+            wait_for(ready, RUSTEL_LANE_TIMEOUT,
+                     f"Rustel did not publish lanes within {RUSTEL_LANE_TIMEOUT} seconds; see {log}")
 
     def start(self, args):
         score = Path(args.score).expanduser().resolve()
@@ -219,7 +275,7 @@ class Launcher:
         if any(not (self.root / path).is_file() for path in required):
             raise RuntimeError("Integration source is missing; run ./Setup.sh before starting")
         hub = self.folder / "target/debug/music-hub"
-        rustel = self.root / "rustel/target/debug/rustel"
+        rustel = self.root / "rustel/target" / RUSTEL_OUTPUT / "rustel"
         if args.build or needs_build("music-link", hub, self.root):
             if hub.is_file() and find_existing(hub):
                 raise RuntimeError("Hub source was updated; stop the running hub before rebuilding")
@@ -228,7 +284,7 @@ class Launcher:
             if rustel.is_file() and find_existing(rustel):
                 raise RuntimeError("Rustel source was updated; close Rustel before rebuilding")
             run(["cargo", "build", "--manifest-path", self.root / "rustel/Cargo.toml", "-p", "rustel",
-                 "--no-default-features", "--features", "studio,music-link"], self.root)
+                 "--profile", RUSTEL_PROFILE, "--no-default-features", "--features", "studio,music-link"], self.root)
         candidates = bespoke_candidates(self.root, sys.platform)
         bespoke = next((p for p in candidates if p.is_file()), None)
         if not args.no_bespoke and (args.build or bespoke is None or needs_build("BespokeSynth", bespoke, self.root)):
@@ -250,7 +306,7 @@ class Launcher:
         if args.silent:
             arguments += ["--output", "silent"]
         player = self.ensure("rustel", rustel, arguments, env)
-        wait_for(hub_state, 20, "Rustel is not publishing lanes; see music-link/logs/rustel-error.log")
+        self.wait_for_rustel_lanes(player)
         if args.lane_audio:
             wait_for(lambda: any(s["session"].startswith(f"rustel-{player['pid']}-") and s.get("lane_audio")
                                  for s in (hub_state() or [])), 8,

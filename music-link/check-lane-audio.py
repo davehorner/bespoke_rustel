@@ -64,7 +64,12 @@ def main():
                     launch([str(ROOT / ("music-link/target/debug/music-hub.exe" if os.name == "nt" else "music-link/target/debug/music-hub"))])
                     wait_for(lambda: sessions() is not None)
                 env = dict(os.environ, RUSTEL_MUSIC_LINK="1", RUSTEL_LANE_AUDIO="1")
-                process = launch([str(ROOT / ("rustel/target/debug/rustel.exe" if os.name == "nt" else "rustel/target/debug/rustel")), "play", str(score),
+                if os.name == "nt":
+                    rustel = ROOT / "rustel/target/debug/rustel.exe"
+                else:
+                    from start_music import RUSTEL_OUTPUT
+                    rustel = ROOT / "rustel/target" / RUSTEL_OUTPUT / "rustel"
+                process = launch([str(rustel), "play", str(score),
                                   "--watch", "--no-update-check", "--no-input", "--output", "silent"], env)
                 def current():
                     return next((s for s in sessions() if s["session"].startswith(f"rustel-{process.pid}-")), None)
