@@ -4,6 +4,7 @@
 #include "FileStream.h"
 #include "ModularSynth.h"
 #include "RustelNoteGlyph.h"
+#include "RustelSourceNavigation.h"
 #include "nanovg/nanovg.h"
 #include <algorithm>
 #include <array>
@@ -103,6 +104,8 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
       mEvents.clear();
       mLive = false;
       mSourceScroll = 0;
+      mSourceFocusFrom = mSourceFocusTo = -1;
+      mSourceFocusName.clear();
       mAudioSequence = 0;
       mAudioGeneration = -1;
       mAudioScope.clear();
@@ -118,6 +121,7 @@ void RustelView::DropdownUpdated(DropdownList* list, int, double)
          else RustelLink::Solo(mSessionId, mGeneration, mLaneId, true);
       }
       mSourceScroll = 0;
+      if (!mLaneId.empty()) RevealSource(mLaneId, "");
    }
 }
 
@@ -161,12 +165,14 @@ void RustelView::Poll()
    if (generation == mGeneration && cycle == mCycle)
       return;
    mGeneration = generation;
-   mDocument = session["source"].toString().toStdString();
+   const auto document = session["source"].toString().toStdString();
+   if (document != mDocument) { mSourceFocusFrom = mSourceFocusTo = -1; mSourceFocusName.clear(); }
+   mDocument = document;
    mBindings.clear();
    if (auto* bindings = session["bindings"].getArray())
       for (const auto& binding : *bindings)
          if (auto* rgb = binding["color"].getArray(); rgb && rgb->size() == 3)
-            mBindings.push_back({ int(binding["from"]), int(binding["to"]), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])) });
+            mBindings.push_back({ int(binding["from"]), int(binding["to"]), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), binding["name"].toString().toStdString() });
    mCycle = cycle;
    mCps = cps;
    mReceived = juce::Time::getMillisecondCounterHiRes();
@@ -177,6 +183,7 @@ void RustelView::Poll()
          if (lanes.size() >= 64)
             break;
          lanes.push_back({ lane["id"].toString().toStdString(), lane["label"].toString().toStdString(), lane["source"].toString().toStdString(), int(lane["transpose"]) });
+         lanes.back().line = std::max(1, int(lane["line"]));
          if (auto* parts = lane["parts"].getArray())
             for (const auto& part : *parts)
                if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
@@ -244,6 +251,56 @@ void RustelView::Poll()
       }
 }
 
+void RustelView::RevealSource(const std::string& laneId, const std::string& part)
+{
+   const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
+   if (lane == mLanes.end() || mDocument.empty()) return;
+   auto expression = juce::String(lane->source).trim();
+   auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
+   if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
+      expression = expression.fromFirstOccurrenceOf(":", false, false).trim();
+   const Binding* target = nullptr;
+   for (const auto& binding : mBindings)
+   {
+      if (binding.name.empty() || binding.from < 0 || binding.to <= binding.from || size_t(binding.to) > mDocument.size()) continue;
+      bool matches = binding.name == part;
+      if (part.empty())
+      {
+         const auto name = juce::String(binding.name);
+         if (expression.startsWith(name))
+         {
+            const auto next = expression[name.length()];
+            matches = !juce::CharacterFunctions::isLetterOrDigit(next) && next != '_' && next != '$';
+         }
+      }
+      if (matches) { target = &binding; break; }
+   }
+   if (target)
+   {
+      mSourceFocusFrom = target->from;
+      mSourceFocusTo = target->to;
+      mSourceFocusName = target->name;
+   }
+   else
+   {
+      size_t offset = 0;
+      for (int line = 1; line < lane->line && offset < mDocument.size(); ++line)
+      {
+         const auto newline = mDocument.find('\n', offset);
+         offset = newline == std::string::npos ? mDocument.size() : newline + 1;
+      }
+      const auto end = mDocument.find('\n', offset);
+      mSourceFocusFrom = int(offset);
+      mSourceFocusTo = int(end == std::string::npos ? mDocument.size() : end);
+      mSourceFocusName = laneId;
+   }
+   const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
+   const int columns = std::max(10, int((mWidth - 42) / charWidth));
+   const int row = RustelSourceNavigation::VisualRow(mDocument, size_t(mSourceFocusFrom), columns);
+   const float viewHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 8;
+   mSourceScroll = std::max(0.0f, 36 + row * 16 - viewHeight * 0.4f);
+}
+
 int RustelView::EventRow(const Event& event) const
 {
    int parent = -1;
@@ -304,6 +361,7 @@ void RustelView::DrawModule()
          visible.push_back(i);
    mRows.clear();
    mRowButtons.clear();
+   mSourceButtons.clear();
    bool allOpen = !visible.empty();
    bool hasParts = false;
    for (int index : visible)
@@ -415,7 +473,12 @@ void RustelView::DrawModule()
          const auto heading = project({ -8.7f, 0.25f, z });
          labels.push_back({ heading, mRows[row].label, color });
          if (!mRows[row].child && !mLanes[lane].parts.empty())
-            mRowButtons.push_back({ ofRectangle(heading.x - 3, heading.y - 12, std::min(340.0f, float(mRows[row].label.size() * 6)), 18), mLanes[lane].id });
+            mRowButtons.push_back({ ofRectangle(heading.x - 3, heading.y - 12, 24, 18), mLanes[lane].id });
+         if (heading.y >= top && heading.y <= bottom)
+         {
+            const float inset = !mRows[row].child && !mLanes[lane].parts.empty() ? 24 : 0;
+            mSourceButtons.push_back({ ofRectangle(heading.x + inset, heading.y - 12, std::max(12.0f, std::min(340.0f, float(mRows[row].label.size() * 6)) - inset), 18), mLanes[lane].id, mRows[row].part });
+         }
          line({ -9, 0, z }, { 6, 0, z }, WithAlpha(color, 80), 1.4f);
          float pulse = 0;
          int rendered = 0;
@@ -434,7 +497,12 @@ void RustelView::DrawModule()
                float length = float(std::clamp(event.duration, 0.012, 3.0)) * 5;
                auto eventColor = event.part.empty() ? color : ofColor(event.partColor[0], event.partColor[1], event.partColor[2]);
                if (!event.part.empty())
-                  labels.push_back({ project({ x + length * 0.5f, (event.pitch - 24) * 0.065f + 0.55f + hit * 0.35f, z + 0.1f }), event.part, eventColor });
+               {
+                  const auto point = project({ x + length * 0.5f, (event.pitch - 24) * 0.065f + 0.55f + hit * 0.35f, z + 0.1f });
+                  labels.push_back({ point, event.part, eventColor });
+                  if (point.y >= top && point.y <= bottom)
+                     mSourceButtons.push_back({ ofRectangle(point.x, point.y - 12, float(event.part.size() * 6), 18), mLanes[lane].id, event.part });
+               }
                if (mTraces)
                   box({ x, (event.original - 24) * 0.065f + 0.3f, z - 0.25f }, { length, 0.035f, 0.055f }, eventColor, true);
                box({ x, (event.pitch - 24) * 0.065f + 0.3f + hit * 0.35f, z + 0.1f }, { length, 0.12f + hit * 0.2f, 0.22f }, eventColor, false, &event.note);
@@ -519,6 +587,8 @@ void RustelView::DrawModule()
       float x = 12 + i * (mWidth - 24) / std::max(1, std::min(count, 12));
       ofSetColor(RowColor(i));
       DrawTextNormal(mRows[i].child ? mRows[i].part : mLanes[lane].id, x, bottom + 18, 9);
+      const float width = (mWidth - 24) / std::max(1, std::min(count, 12));
+      mSourceButtons.push_back({ ofRectangle(x, bottom + 5, width, 20), mLanes[lane].id, mRows[i].part });
    }
    const float sourceTop = bottom + 30;
    const float sourceBottom = mHeight - 28;
@@ -563,11 +633,18 @@ bool RustelView::InNoteField(float x, float y)
 void RustelView::OnClicked(float x, float y, bool right)
 {
    IDrawableModule::OnClicked(x, y, right);
-   if (!right && mViewMode == 0)
+   if (!right && mViewMode == 0 && InNoteField(x, y))
       for (const auto& button : mRowButtons)
          if (button.first.contains(x, y))
          {
             if (mExpanded.count(button.second)) mExpanded.erase(button.second); else mExpanded.insert(button.second);
+            return;
+         }
+   if (!right && y >= 82 && x >= 2 && x <= mWidth - 2)
+      for (auto button = mSourceButtons.rbegin(); button != mSourceButtons.rend(); ++button)
+         if (button->bounds.contains(x, y))
+         {
+            RevealSource(button->lane, button->part);
             return;
          }
    if (!InNoteField(x, y) || IsKeyHeld(' ') || (GetKeyModifiers() & kModifier_Alt))
@@ -692,6 +769,10 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
    }
    mCameraDragging = false;
    mSessionIds.clear();
+   mSourceFocusFrom = mSourceFocusTo = -1;
+   mSourceFocusName.clear();
+   mSourceButtons.clear();
+   mRowButtons.clear();
    mViewMode = std::clamp(mViewMode, 0, 8);
    mLanes.clear();
    mEvents.clear();
@@ -706,7 +787,7 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
 float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y)
 {
    ofSetColor(155, 175, 200);
-   DrawTextNormal("evaluated document / sounding tokens highlighted", 16, y, 10);
+   DrawTextNormal(mSourceFocusName.empty() ? "evaluated document / sounding tokens highlighted" : "evaluated document / selected: " + mSourceFocusName, 16, y, 10);
    y += 18;
    const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
    const int columns = std::max(10, int((mWidth - 42) / charWidth));
@@ -742,6 +823,18 @@ float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cyc
          }
       if (y >= 82 && y <= mHeight)
       {
+         if (mSourceFocusFrom >= 0 && mSourceFocusTo > mSourceFocusFrom)
+         {
+            const size_t a = std::max(begin, size_t(mSourceFocusFrom));
+            const size_t b = std::min(end, size_t(mSourceFocusTo));
+            if (b > a)
+            {
+               const float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
+               const float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
+               ofFill(); ofSetColor(255, 215, 120, 75); ofRect(x, y - 12, width, 16);
+               ofSetColor(255, 215, 120); ofLine(x, y + 3, x + width, y + 3);
+            }
+         }
          ofSetColor(210, 224, 240);
          gFontFixedWidth.DrawString(row, 11, 16, y);
          for (const auto& binding : mBindings)

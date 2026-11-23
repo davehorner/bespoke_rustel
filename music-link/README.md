@@ -95,6 +95,10 @@ Bespoke's Stage also labels every block face with this note/hit notation.
 Glyphs follow each projected face and its depth order as you rotate the stage,
 without mirrored text or hidden-side labels bleeding through. Short notes have
 smaller face labels; zoom in for readability. Part-name labels remain separate.
+In Bespoke, clicking a numbered lane label or an expanded part-name label scrolls
+the existing evaluated-document pane to its definition and highlights the target.
+Stage headings and floating part labels support the same navigation. The small
+`[+]` / `[-]` region remains dedicated to expanding or collapsing parts.
 In Nightshade, core rails also carry flat text inscriptions. Virtual-part rails are shorter
 and inset beneath their playback parent. Time-axis captions and ticks sit in
 their own gutter, separate from the rails; crowded axis values are suppressed

@@ -36,6 +36,7 @@ private:
       std::string id, label, source;
       int transpose{ 0 };
       std::vector<NamedPart> parts;
+      int line{ 1 };
    };
    struct Event
    {
@@ -54,13 +55,18 @@ private:
    std::vector<VisualRow> mRows;
    std::set<std::string> mExpanded;
    std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
+   struct SourceButton { ofRectangle bounds; std::string lane, part; };
+   std::vector<SourceButton> mSourceButtons;
+   void RevealSource(const std::string& lane, const std::string& part);
+   int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
+   std::string mSourceFocusName;
    int EventRow(const Event& event) const;
    ofColor RowColor(int row) const;
    void DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    void DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    float DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y);
    std::string mDocument;
-   struct Binding { int from, to; ofColor color; };
+   struct Binding { int from, to; ofColor color; std::string name; };
    std::vector<Binding> mBindings;
    void PollAudio();
    void DrawAudioView(float top, float bottom, double dt);
