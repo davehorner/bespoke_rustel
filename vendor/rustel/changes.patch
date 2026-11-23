@@ -1545,10 +1545,10 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da527f54f3
+index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544ecbdff2d
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
-@@ -0,0 +1,625 @@
+@@ -0,0 +1,670 @@
 +//! Opt-in producer-side telemetry and pointwise transpose overlays.
 +//! No extra pattern queries and no socket work on the Session thread.
 +use super::*;
@@ -1565,6 +1565,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +    last_publish: Instant,
 +    paused_at: Option<f64>,
 +    inspection_cycle: Option<f64>,
++    time_signature: (u32,u32),
 +    pending_transport: std::collections::VecDeque<music_link::Command>,
 +    #[cfg(feature = "device-audio")]
 +    audio: Option<MusicAudio>,
@@ -1594,6 +1595,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +            last_publish: Instant::now(),
 +            paused_at: None,
 +            inspection_cycle: None,
++            time_signature: (4,4),
 +            pending_transport: Default::default(),
 +            #[cfg(feature = "device-audio")]
 +            audio: None,
@@ -1681,7 +1683,26 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +        if let Some(command)=self.music.pending_transport.pop_front() {
 +            let valid=command.validate(&self.music.snapshot);
 +            let result=match valid {
-+                Ok(())=>self.music_transport_at(command.transport.as_ref().expect("transport command"),now),
++                Ok(())=>{
++                    if command.tempo.is_some() || command.source_update.is_some() {
++                        (|| {
++                            let before=self.generation();
++                            let phase=self.music.paused_at.unwrap_or_else(||self.cycle_at_time(now));
++                            let mut source=if let Some(tempo)=&command.tempo {
++                                rustel_transpiler::music_transport::rewrite(self.active_source().unwrap_or_default(),tempo.bpm,tempo.top,tempo.bottom).map_err(RuntimeError::Message)?
++                            } else {command.source_update.clone().ok_or_else(||RuntimeError::Message("demo source unavailable".into()))?};
++                            if command.demo.is_some()&&rustel_transpiler::running_calls(&source,&["setcpm","setcps"]).is_empty() {
++                                let (top,bottom)=self.music.time_signature;
++                                source=rustel_transpiler::music_transport::rewrite(&source,self.cps()*240.0*f64::from(top)/f64::from(bottom),top,bottom).map_err(RuntimeError::Message)?;
++                            }
++                            let after=self.reload_at(&source,false,now)?;
++                            if let Some(tempo)=&command.tempo {self.retime(now,tempo.cps(),phase);}
++                            if let Some(demo)=&command.demo {self.music.snapshot.demo=demo.clone();}
++                            Ok(Some((before,after)))
++                        })()
++                    } else if let Some(action)=&command.transport {self.music_transport_at(action,now)}
++                    else {Err(RuntimeError::Message("source control unavailable".into()))}
++                },
 +                Err(message)=>Err(RuntimeError::Message(message.into())),
 +            };
 +            let accepted=result.is_ok();
@@ -1757,6 +1778,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +        let source = self.active_source().unwrap_or_default().to_owned();
 +        let state = &mut self.music;
 +        if state.snapshot.source != source {
++            state.time_signature=rustel_transpiler::music_transport::time_signature(&source);
 +            state.snapshot.events.clear();
 +            state.snapshot.rests.clear();
 +            state.inspection_cycle=state.paused_at;
@@ -1780,6 +1802,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +        state.snapshot.generation = generation;
 +        state.snapshot.cycle = cycle;
 +        state.snapshot.cps = cps;
++        state.snapshot.tempo=Some(music_link::TempoSettings {bpm:cps*240.0*f64::from(state.time_signature.0)/f64::from(state.time_signature.1),top:state.time_signature.0,bottom:state.time_signature.1});
 +        state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some(), view_cycle:state.inspection_cycle});
 +        state.snapshot.lanes = lanes;
 +        for lane in &mut state.snapshot.lanes {
@@ -1804,7 +1827,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +        for command in link.commands() {
 +            // Other sessions share the topic and must not answer this request.
 +            if command.session != state.snapshot.session { continue; }
-+            if command.transport.is_some() {
++            if command.transport.is_some() || command.demo.is_some() || command.tempo.is_some() || command.source_update.is_some() {
 +                if state.pending_transport.len()<64 {state.pending_transport.push_back(command);}
 +                continue;
 +            }
@@ -1919,6 +1942,27 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +mod transport_tests {
 +    use super::*;
 +    #[test]
++    fn native_tempo_edits_source_and_demo_changes_replace_only_the_active_session() {
++        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
++            let mut session=Session::new().unwrap();session.music.link=Some(Link::connect().unwrap());
++            session.evaluate("setcpm(124/4); const bpm = 124; const bass = note(\"c3 e3\"); $: bass.s(\"sine\")").unwrap();
++            session.schedule_at(0.0).unwrap();
++            let mut command=music_link::Command {request:"tempo".into(),session:session.music.snapshot.session.clone(),generation:session.generation(),lane:String::new(),
++                semitones:0,solo:None,transport:None,demo:None,tempo:Some(music_link::TempoSettings {bpm:135.0,top:6,bottom:8}),source_update:None};
++            session.music.pending_transport.push_back(command.clone());
++            assert!(session.apply_pending_music_transport(0.1).unwrap().is_some());
++            assert!(session.active_source().unwrap().contains("const bpm = 135"));
++            assert_eq!(rustel_transpiler::music_transport::time_signature(session.active_source().unwrap()),(6,8));
++            assert!((session.cps()-0.75).abs()<1e-8);
++            command.generation=session.generation();command.tempo=None;command.demo=Some("next.strudel".into());
++            command.source_update=Some("setcpm(90/4); $: note(\"g3\").s(\"sine\")".into());
++            session.music.snapshot.generation=session.generation();
++            session.music.pending_transport.push_back(command);
++            assert!(session.apply_pending_music_transport(0.2).unwrap().is_some());
++            assert_eq!(session.music.snapshot.demo,"next.strudel");assert!(session.active_source().unwrap().contains("g3"));
++        }).unwrap().join().unwrap();
++    }
++    #[test]
 +    fn paused_and_stopped_scenes_keep_blocks_and_parts_at_the_inspection_cycle() {
 +        // Enable source/lane tagging in an isolated process, not the shared
 +        // environment of the parallel unit-test runner.
@@ -1973,6 +2017,7 @@ index 0000000000000000000000000000000000000000..569d71ed949f37e27751e3b20bdd24da
 +            producer.step_unwatched_with_clock_and_cutover(&mut session,||0.0,48000,|_,_,_|{},|_|true).unwrap();
 +            let enqueue=|s:&mut Session,action| {
 +                s.music.pending_transport.push_back(music_link::Command {
++                    demo:None,tempo:None,source_update:None,
 +                    request:"test".into(),session:s.music.snapshot.session.clone(),generation:s.music.snapshot.generation,
 +                    lane:String::new(),semitones:0,solo:None,transport:Some(action),
 +                });
@@ -2239,6 +2284,29 @@ index 5373be754eb502ebebad38fecc835cd0ac285374..03bc78ce859e9eae27ff038afc98c1db
      /// Reads the lanes of a score text of the reading document before its
      /// evaluation: see [`Self::set_reading`]. Gives the lane number of each
      /// labeled statement, in text order, for
+diff --git a/crates/runtime/src/watch.rs b/crates/runtime/src/watch.rs
+index 7b826f63468872ac713ae7ae186db4edc44824e1..f29d226fffbbefb2d2df7e671048095582202359 100644
+--- a/crates/runtime/src/watch.rs
++++ b/crates/runtime/src/watch.rs
+@@ -424,6 +424,18 @@ impl FileWatch {
+             Observation::Changed | Observation::Pending => return WatchPoll::Pending,
+             Observation::Ready(current) => current,
+         };
++        // Music-link controls install the score before their background file
++        // writer persists it. Acknowledge that save without installing the
++        // identical graph a second time (which would race the next control).
++        #[cfg(feature="music-link")]
++        if session.music_link_enabled() && matches!(self.target,WatchTarget::Score(WatchLanguage::JavaScript))
++            && matches!(&current,Snapshot::Source(source) if session.active_source()==Some(source.as_str()))
++        {
++            self.delivered=current;
++            self.capacity_refusals=0;
++            self.capacity_retry_held=false;
++            return WatchPoll::Unchanged;
++        }
+         let generation_before = session.generation();
+         let mut capacity_refused = false;
+         let poll = match &current {
 diff --git a/crates/runtime/tests/music_telemetry.rs b/crates/runtime/tests/music_telemetry.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..a01b62465d075303732f527c3e6bdc8a178ffb82
@@ -2500,10 +2568,18 @@ index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf
          // the browser asks, whatever the score's own visuals are doing. The
          // score's own taps follow the audible layout: the reset below records
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa5a16250f 100644
+index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb448926f3b7 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
-@@ -980,6 +980,8 @@ pub struct TranspileOptions {
+@@ -32,6 +32,7 @@ use std::collections::HashSet;
+ use std::path::Path;
+ 
+ mod arrange_marks;
++pub mod music_transport;
+ mod callback_ir;
+ mod frequency_sliders;
+ mod surface_writes;
+@@ -980,6 +981,8 @@ pub struct TranspileOptions {
      pub wrap_async: bool,
      pub add_return: bool,
      pub emit_mini_locations: bool,
@@ -2512,7 +2588,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
      pub block_offset: usize,
      pub registered_languages: Vec<String>,
      pub widget_methods: Vec<String>,
-@@ -1008,6 +1010,7 @@ impl Default for TranspileOptions {
+@@ -1008,6 +1011,7 @@ impl Default for TranspileOptions {
              wrap_async: false,
              add_return: true,
              emit_mini_locations: true,
@@ -2520,7 +2596,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
              block_offset: 0,
              registered_languages: Vec::new(),
              widget_methods: Vec::new(),
-@@ -1597,6 +1600,9 @@ pub struct TopLevelDeclaration {
+@@ -1597,6 +1601,9 @@ pub struct TopLevelDeclaration {
      /// Byte range of the name in the source that was read.
      pub from: usize,
      pub to: usize,
@@ -2530,7 +2606,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
  }
  
  /// What a setup file leaves behind for the scores that follow it, read from
-@@ -1653,12 +1659,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
+@@ -1653,12 +1660,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
  
  fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
      let mut declarations = Vec::new();
@@ -2546,7 +2622,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
          });
      };
      for statement in &program.body {
-@@ -1677,18 +1685,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
+@@ -1677,18 +1686,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
                      // A destructured binding is skipped: there is no single
                      // name to offer, and the advice would be the same.
                      if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
@@ -2568,7 +2644,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
                  }
              }
              _ => {}
-@@ -2520,6 +2528,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -2520,6 +2529,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
      output
  }
  
@@ -2606,7 +2682,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
  /// The body of `transpile`, always called on a parse stack.
  fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let regexes = RegexLiteralRanges::parse(source);
-@@ -2562,6 +2601,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -2562,6 +2602,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let (labels, lanes_by_place) =
          rewrite_labels(&kabel, regexes_are_present, &options.lane_numbers);
      let samples = rewrite_bare_samples(&labels);
@@ -2614,7 +2690,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
      let mut parsed = parse_and_print_as(&samples, SourceType::mjs(), ModuleSyntax::of(options));
      // The parser read the rewritten text; the score is what the reader sees.
      for diagnostic in &mut parsed.diagnostics {
-@@ -2876,7 +2916,7 @@ fn rewrite_mini_literals(
+@@ -2876,7 +2917,7 @@ fn rewrite_mini_literals(
                  && !ordinary_strings.contains(index)
                  && (quote == b'"' || (quote == b'`' && !tagged && !interpolated))
              {
@@ -2623,7 +2699,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
                      Ok(value) => value,
                      Err(error) => {
                          diagnostics.push(ParseDiagnostic {
-@@ -2890,9 +2930,14 @@ fn rewrite_mini_literals(
+@@ -2890,9 +2931,14 @@ fn rewrite_mini_literals(
                  };
                  if options.emit_mini_locations
                      && let Ok(mut spans) =
@@ -2640,7 +2716,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
                  }
                  output.push_str("m(");
                  output.push_str(&quote_single(&value));
-@@ -2906,6 +2951,17 @@ fn rewrite_mini_literals(
+@@ -2906,6 +2952,17 @@ fn rewrite_mini_literals(
                      // ranges later when a helper returns this pattern.
                      output.push_str("-1");
                  }
@@ -2658,7 +2734,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
                  restore_line_breaks(&mut output, raw);
                  output.push(')');
                  map.resume(end, output.len());
-@@ -3939,10 +3995,19 @@ struct JsStringDecodeError {
+@@ -3939,10 +3996,19 @@ struct JsStringDecodeError {
      offset: usize,
  }
  
@@ -2678,7 +2754,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
          if ch != '\\' {
              if matches!(ch, '\n' | '\r') {
                  // A raw line break is a syntax error inside '' or "", but a
-@@ -3965,9 +4030,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+@@ -3965,9 +4031,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                  } else {
                      output.push(ch);
                  }
@@ -2692,7 +2768,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
              continue;
          }
          match chars.next().map(|(_, ch)| ch) {
-@@ -4012,8 +4081,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+@@ -4012,8 +4082,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                  });
              }
          }
@@ -2704,7 +2780,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
  }
  
  /// Decode one `\u` escape, positioned just after the `u`.
-@@ -4706,6 +4777,15 @@ mod tests {
+@@ -4706,6 +4778,15 @@ mod tests {
          }
      }
  
@@ -2720,7 +2796,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
      #[test]
      fn setup_definitions_list_top_level_declarations_with_their_spans() {
          let source = "const a = 1, b = 2\nlet c\nvar d\nfunction e() {}\nclass F {}\nif (a) { const inner = 1 }\nconst [x] = [1]\n";
-@@ -6026,6 +6106,7 @@ mod tests {
+@@ -6026,6 +6107,7 @@ mod tests {
          assert_eq!(transpile(r"fo\u{6f}`a b`", &options).output, "foo`a b`;");
          let located = TranspileOptions {
              emit_mini_locations: true,
@@ -2728,7 +2804,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
              ..options
          };
          assert_eq!(
-@@ -6042,7 +6123,7 @@ mod tests {
+@@ -6042,7 +6124,7 @@ mod tests {
          };
          let result = transpile(r#"s(`bd \${snare}`)"#, &options);
          assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
@@ -2737,7 +2813,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
  
          let language = TranspileOptions {
              add_return: false,
-@@ -6242,10 +6323,10 @@ mod tests {
+@@ -6242,10 +6324,10 @@ mod tests {
              ("s(`bd\nsd`)", "s(m('bd\\nsd', 2\n))"),
              ("$: `bd\nsd`", "$: m('bd\\nsd', 3\n)"),
              ("mondo`bd\nsd`", "mondo('bd\\nsd', 6\n)"),
@@ -2751,3 +2827,224 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..8429946e0a9411a97a2297c6a806f5aa
          ] {
              let rewrite = rewrite_mini_literals(
                  source,
+diff --git a/crates/transpiler/src/music_transport.rs b/crates/transpiler/src/music_transport.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd4c2aa6b55b99209101bf2d482fa0c9ec9da947
+--- /dev/null
++++ b/crates/transpiler/src/music_transport.rs
+@@ -0,0 +1,215 @@
++//! Source-preserving transport edits using parser spans, never string matches
++//! inside comments, mini notation, or unrelated identifier names.
++use super::*;
++
++struct Calls {
++    allowed: HashSet<usize>,
++    ranges: Vec<std::ops::Range<usize>>,
++}
++impl<'a> Visit<'a> for Calls {
++    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
++        if self.allowed.contains(&(call.callee.span().start as usize)) {
++            self.ranges
++                .push(call.span.start as usize..call.span.end as usize);
++        }
++        walk::walk_call_expression(self, call);
++    }
++}
++
++pub fn time_signature(source: &str) -> (u32, u32) {
++    on_parse_stack(|| {
++        let allocator = Allocator::default();
++        let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
++        let mut result = (4, 4);
++        for statement in &parsed.program.body {
++            if let Statement::VariableDeclaration(decl) = statement {
++                for binding in &decl.declarations {
++                    if let (
++                        BindingPattern::BindingIdentifier(id),
++                        Some(Expression::NumericLiteral(value)),
++                    ) = (&binding.id, &binding.init)
++                    {
++                        if value.value >= 1.0 && value.value <= 64.0 && value.value.fract() == 0.0 {
++                            if id.name == "timeSignatureTop" {
++                                result.0 = value.value as u32;
++                            }
++                            if id.name == "timeSignatureBottom"
++                                && (value.value as u32).is_power_of_two()
++                            {
++                                result.1 = value.value as u32;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        result
++    })
++    .unwrap_or((4, 4))
++}
++
++pub fn rewrite(source: &str, bpm: f64, top: u32, bottom: u32) -> Result<String, String> {
++    if !bpm.is_finite()
++        || !(1.0..=1000.0).contains(&bpm)
++        || !(1..=64).contains(&top)
++        || !bottom.is_power_of_two()
++        || bottom > 64
++    {
++        return Err("invalid transport settings".into());
++    }
++    if check_nesting(source).is_err() {
++        return Err("source nesting limit".into());
++    }
++    on_parse_stack(|| {
++        let allocator = Allocator::default();
++        let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
++        if parsed.panicked || !parsed.diagnostics.is_empty() {
++            return Err("cannot update invalid source".into());
++        }
++        let settings = [
++            ("bpm", bpm.to_string()),
++            ("timeSignatureTop", top.to_string()),
++            ("timeSignatureBottom", bottom.to_string()),
++        ];
++        let mut found = [false; 3];
++        let mut anchor = 0;
++        let mut edits = Vec::<(usize, usize, String)>::new();
++        for statement in &parsed.program.body {
++            if let Statement::VariableDeclaration(decl) = statement {
++                for binding in &decl.declarations {
++                    if let BindingPattern::BindingIdentifier(id) = &binding.id {
++                        if let Some(index) = settings.iter().position(|(name, _)| id.name == *name)
++                        {
++                            found[index] = true;
++                            anchor = anchor.max(decl.span.end as usize);
++                            if let Some(init) = &binding.init {
++                                let span = init.span();
++                                edits.push((
++                                    span.start as usize,
++                                    span.end as usize,
++                                    settings[index].1.clone(),
++                                ));
++                            } else {
++                                edits.push((
++                                    id.span.end as usize,
++                                    id.span.end as usize,
++                                    format!(" = {}", settings[index].1),
++                                ));
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        let mut calls = Calls {
++            allowed: running_calls(source, &["setcpm", "setcps"])
++                .into_iter()
++                .map(|(_, r)| r.start)
++                .collect(),
++            ranges: Vec::new(),
++        };
++        calls.visit_program(&parsed.program);
++        let existing = calls
++            .ranges
++            .iter()
++            .find(|range| {
++                range.start >= anchor
++                    && !edits
++                        .iter()
++                        .any(|(a, b, _)| *a < range.end && range.start < *b)
++            })
++            .cloned();
++        for range in calls.ranges {
++            if edits
++                .iter()
++                .any(|(a, b, _)| *a < range.end && range.start < *b)
++            {
++                continue;
++            }
++            if existing.as_ref() == Some(&range) {
++                edits.push((
++                    range.start,
++                    range.end,
++                    "setcpm(bpm * timeSignatureBottom / (4 * timeSignatureTop))".into(),
++                ));
++                continue;
++            }
++            let statement = parsed
++                .program
++                .body
++                .iter()
++                .find_map(|statement| match statement {
++                    Statement::ExpressionStatement(e)
++                        if e.expression.span().start as usize == range.start
++                            && e.expression.span().end as usize == range.end =>
++                    {
++                        Some(e.span)
++                    }
++                    _ => None,
++                });
++            if let Some(span) = statement {
++                edits.push((span.start as usize, span.end as usize, String::new()));
++            } else {
++                edits.push((range.start, range.end, "void 0".into()));
++            }
++        }
++        let eol = if source.contains("\r\n") {
++            "\r\n"
++        } else {
++            "\n"
++        };
++        let mut prefix = String::new();
++        for (index, (name, value)) in settings.iter().enumerate() {
++            if !found[index] {
++                prefix.push_str(&format!("const {name} = {value};{eol}"));
++            }
++        }
++        let call =
++            format!(";{eol}setcpm(bpm * timeSignatureBottom / (4 * timeSignatureTop));{eol}");
++        if existing.is_none() {
++            if anchor == 0 {
++                prefix.push_str(&call);
++            } else {
++                edits.push((anchor, anchor, call));
++            }
++        }
++        if !prefix.is_empty() {
++            edits.push((0, 0, prefix));
++        }
++        edits.sort_by_key(|(from, to, _)| (*from, *to));
++        let mut result = source.to_owned();
++        for (from, to, text) in edits.into_iter().rev() {
++            result.replace_range(from..to, &text);
++        }
++        Ok(result)
++    })
++    .ok_or_else(|| "cannot start source parser".to_owned())?
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn transport_rewrite_preserves_multiline_patterns_comments_and_other_bindings() {
++        let source = "// setcpm(9)\r\nsetcpm(124/4)\r\nconst bpm = 124, keep = 7;\r\nconst bass = note(\"c3 \\\r\n e3\");\r\n$: bass\r\n";
++        let updated = rewrite(source, 135.0, 6, 8).unwrap();
++        assert!(updated.contains("const bpm = 135, keep = 7;"));
++        assert!(updated.contains("// setcpm(9)"));
++        assert!(updated.contains("note(\"c3 \\\r\n e3\")"));
++        assert_eq!(time_signature(&updated), (6, 8));
++        assert_eq!(running_calls(&updated, &["setcpm", "setcps"]).len(), 1);
++        assert!(updated.ends_with("$: bass\r\n"));
++        assert_eq!(rewrite(&updated, 135.0, 6, 8).unwrap(), updated);
++    }
++    #[test]
++    fn transport_can_be_added_without_stealing_the_last_pattern_expression() {
++        let updated = rewrite("note(\"c3 e3\")", 90.0, 3, 4).unwrap();
++        assert!(updated.ends_with("note(\"c3 e3\")"));
++        assert_eq!(time_signature(&updated), (3, 4));
++        assert!(
++            transpile(&updated, &TranspileOptions::default())
++                .diagnostics
++                .is_empty()
++        );
++    }
++}

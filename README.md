@@ -17,6 +17,9 @@ cd bespoke_rustel
 
 All start launchers start Nightshade, print
 `http://127.0.0.1:18765/?music=1`, and open it in your browser by default.
+Demo dropdowns discover the committed scores in `music-link/strudel`. Each new
+Rustel player watches its own named working copy in `music-link/sessions`;
+Bespoke's native tempo and time-signature controls keep that copy updated.
 
 On macOS, `start_music.command` is also double-clickable. Setup initializes and
 patches source; the launcher builds missing components. Native compilers, Rust,

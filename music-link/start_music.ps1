@@ -1,7 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string]$Score = (Join-Path $PSScriptRoot 'demo.strudel'),
+    [string]$Score = (Join-Path $PSScriptRoot 'strudel/demo_arrangement.strudel'),
     [switch]$Web = $true,
     [switch]$NoWeb,
     [switch]$NoOpen,
@@ -217,13 +217,29 @@ try {
         }
         $previousLink = $env:RUSTEL_MUSIC_LINK
         $previousLaneAudio = $env:RUSTEL_LANE_AUDIO
+        $previousMusicRoot = $env:MUSIC_LINK_ROOT
+        $previousSessionFile = $env:RUSTEL_SESSION_FILE
+        $previousDemoName = $env:RUSTEL_DEMO_NAME
+        $templateScore = $Score
+        $existingRustel = @(Get-Process -Name rustel -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $rustelExe })
+        if (!$existingRustel.Count) {
+            $Score = & python (Join-Path $PSScriptRoot 'session_score.py') $templateScore
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the session score.' }
+            Write-Host "Session score: $Score"
+        }
+        $env:MUSIC_LINK_ROOT = $PSScriptRoot
+        $env:RUSTEL_SESSION_FILE = $Score
+        $env:RUSTEL_DEMO_NAME = [System.IO.Path]::GetFileName($templateScore)
         $env:RUSTEL_MUSIC_LINK = '1'
         if ($LaneAudio) { $env:RUSTEL_LANE_AUDIO = '1' }
         try {
             $arguments = @('play', $Score, '--watch', '--no-update-check', '--no-input')
             if ($Silent) { $arguments += @('--output', 'silent') }
             $null = Ensure-Process 'rustel' $rustelExe $arguments @('rustel') @($rustelExe)
-        } finally { $env:RUSTEL_MUSIC_LINK = $previousLink; $env:RUSTEL_LANE_AUDIO = $previousLaneAudio }
+        } finally {
+            $env:RUSTEL_MUSIC_LINK = $previousLink; $env:RUSTEL_LANE_AUDIO = $previousLaneAudio
+            $env:MUSIC_LINK_ROOT = $previousMusicRoot; $env:RUSTEL_SESSION_FILE = $previousSessionFile; $env:RUSTEL_DEMO_NAME = $previousDemoName
+        }
         Wait-Until { (Get-HubState).sessions.Count -gt 0 } 20 "Rustel is not publishing lanes. If reusing Studio, evaluate its score; otherwise inspect $logDirectory/rustel-error.log (audio device or score error)."
         if ($LaneAudio) {
             Wait-Until { @((Get-HubState).sessions | Where-Object { $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Rebuild the updated native audio transport if this persists."

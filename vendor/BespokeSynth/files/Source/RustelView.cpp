@@ -4,6 +4,7 @@
 #include "FileStream.h"
 #include "ModularSynth.h"
 #include "RustelNoteGlyph.h"
+#include "Transport.h"
 #include "RustelSourceNavigation.h"
 #include "nanovg/nanovg.h"
 #include <algorithm>
@@ -51,6 +52,55 @@ RustelView::RustelView()
 : IDrawableModule(900, 640)
 {}
 
+void RustelView::PollSessionControls(const juce::var& session)
+{
+   mSessionFile = session["session_file"].toString().toStdString();
+   mFileError = session["file_error"].toString().toStdString();
+   std::vector<std::string> demos;
+   if (auto* names = session["demos"].getArray())
+      for (const auto& name : *names) demos.push_back(name.toString().toStdString());
+   if (demos != mDemos)
+   {
+      mDemos = demos; mDemoPicker->Clear();
+      for (int i=0; i<int(mDemos.size()); ++i) mDemoPicker->AddLabel(mDemos[i],i);
+   }
+   const auto demo = session["demo"].toString().toStdString();
+   mDemoIndex = -1;
+   for (int i=0; i<int(mDemos.size()); ++i) if (mDemos[i] == demo) mDemoIndex = i;
+   const auto tempo = session["tempo"];
+   if (!TheTransport || !tempo.isObject()) return;
+   const double remote = double(tempo["bpm"]);
+   const int top = int(tempo["top"]), bottom = int(tempo["bottom"]);
+   if (!std::isfinite(remote) || remote < 1 || top < 1 || bottom < 1) return;
+   const auto id = session["session"].toString().toStdString();
+   const double now = juce::Time::getMillisecondCounterHiRes();
+   if (mClockSession != id || mClockDemo != demo)
+   {
+      TheTransport->SetTempo(float(remote)); TheTransport->SetTimeSignature(top,bottom);
+      mClockSession = id; mClockDemo = demo;
+      mNativeBpm = remote; mNativeTop = top; mNativeBottom = bottom; mTempoDirty = false;
+   }
+   double local = TheTransport->GetTempo();
+   int localTop = TheTransport->GetTimeSigTop(), localBottom = TheTransport->GetTimeSigBottom();
+   if (std::abs(local-mNativeBpm)>0.001 || localTop!=mNativeTop || localBottom!=mNativeBottom)
+   {
+      mNativeBpm = local; mNativeTop = localTop; mNativeBottom = localBottom;
+      mTempoDirty = true; mTempoChangedAt = now; mTempoRetryAt = now+250;
+   }
+   if (mTempoDirty && std::abs(remote-local)<0.001 && top==localTop && bottom==localBottom) mTempoDirty=false;
+   if (!mTempoDirty && (std::abs(remote-mRemoteBpm)>0.001 || top!=mRemoteTop || bottom!=mRemoteBottom))
+   {
+      TheTransport->SetTempo(float(remote)); TheTransport->SetTimeSignature(top,bottom);
+      mNativeBpm=remote; mNativeTop=top; mNativeBottom=bottom;
+   }
+   if (mTempoDirty && now>=mTempoRetryAt && now-mTempoChangedAt>=250)
+   {
+      RustelLink::Tempo(id,int64_t(session["generation"]),mNativeBpm,mNativeTop,mNativeBottom);
+      mTempoRetryAt=now+1000;
+   }
+   mRemoteBpm=remote; mRemoteTop=top; mRemoteBottom=bottom;
+}
+
 void RustelView::CreateUIControls()
 {
    IDrawableModule::CreateUIControls();
@@ -58,6 +108,7 @@ void RustelView::CreateUIControls()
    mLanePicker = new DropdownList(this, "lane", 260, 6, &mLaneIndex, 180);
    mLanePicker->AddLabel("all lanes", -1);
    mViewPicker = new DropdownList(this, "view", 450, 6, &mViewMode, 180);
+   mDemoPicker = new DropdownList(this, "demo", 650, 6, &mDemoIndex, 220);
    mViewPicker->AddLabel("stage", 0);
    mViewPicker->AddLabel("piano roll", 1);
    mViewPicker->AddLabel("wordfall", 2);
@@ -92,6 +143,12 @@ void RustelView::Resize(float w, float h)
 
 void RustelView::DropdownUpdated(DropdownList* list, int, double)
 {
+   if (list == mDemoPicker)
+   {
+      if (mLive && mDemoIndex >= 0 && mDemoIndex < int(mDemos.size()))
+         RustelLink::Demo(mSessionId, mGeneration, mDemos[mDemoIndex]);
+      return;
+   }
    if (list == mViewPicker)
    {
       mPanX = mPanY = 0;
@@ -162,6 +219,7 @@ void RustelView::Poll()
    if (!std::isfinite(cycle) || !std::isfinite(cps) || cps <= 0)
       return;
    mLive = true;
+   PollSessionControls(session);
    mSoloLane = session["solo_lane"].toString().toStdString();
    mSolo = !mSoloLane.empty();
    PollAudio();
@@ -425,6 +483,7 @@ void RustelView::DrawModule()
    mSessions->Draw();
    mLanePicker->Draw();
    mViewPicker->Draw();
+   mDemoPicker->Draw();
    mYawSlider->SetShowing(mViewMode == 0);
    mTiltSlider->SetShowing(mViewMode == 0);
    mOrbitCheckbox->SetShowing(mViewMode == 0);
@@ -482,7 +541,7 @@ void RustelView::DrawModule()
    ofSetColor(live ? ofColor(80, 235, 200) : ofColor(150, 160, 175));
    DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "MASTER AUDIO ANALYSIS" : (live ? "LIVE PATTERN FIELD" : "WAITING FOR RUSTEL"), 12, 70);
    ofSetColor(155, 175, 200);
-   DrawTextNormal(ofToString(mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
+   DrawTextNormal(ofToString(mRemoteBpm > 0 ? mRemoteBpm : mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
    const float sourceHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f);
    const float top = 82, bottom = mHeight - sourceHeight - 50, fieldHeight = bottom - top;
    if (mViewMode == 0)
@@ -913,7 +972,10 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
 float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y)
 {
    ofSetColor(155, 175, 200);
-   DrawTextNormal(mSourceFocusName.empty() ? "evaluated document / sounding tokens highlighted" : "evaluated document / selected: " + mSourceFocusName, 16, y, 10);
+   auto heading = mSourceFocusName.empty() ? std::string("evaluated document / sounding tokens highlighted") : "evaluated document / selected: " + mSourceFocusName;
+   if (!mSessionFile.empty()) heading += " / " + juce::File(mSessionFile).getFileName().toStdString();
+   if (!mFileError.empty()) heading = mFileError;
+   DrawTextNormal(heading, 16, y, 10);
    y += 18;
    const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
    const int columns = std::max(10, int((mWidth - 42) / charWidth));

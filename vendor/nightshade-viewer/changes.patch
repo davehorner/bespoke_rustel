@@ -586,10 +586,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f93211536065
+index 0000000000000000000000000000000000000000..85d4691917d457639952ba4a771e53499ef738c1
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,470 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -645,6 +645,17 @@ index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f932
 +        REQUESTS.with(|r|{let mut r=r.borrow_mut();if r.len()>=64{r.clear();}r.insert(request);});
 +        state.music_control_status.set("Applying transport…".into());
 +    } else {state.music_control_status.set("Transport could not reach Rustel".into());}
++}
++
++fn select_demo(state:ViewerState,name:String) {
++    let Some(snapshot)=state.music.get_untracked() else{return};
++    if !snapshot.demos.contains(&name){return;}
++    let request=format!("demo-{}-{}",js_sys::Date::now(),js_sys::Math::random());
++    let command=serde_json::json!({"request":request,"session":snapshot.session,"generation":snapshot.generation,"lane":"","demo":name});
++    let sent=CONNECTION.with(|slot|slot.borrow().as_ref().is_some_and(|c|
++        hearsay::encode_publish_text(music_link::COMMAND_TOPIC,&command.to_string(),false).is_ok_and(|frame|c.socket.send_with_u8_array(&frame).is_ok())));
++    if sent {REQUESTS.with(|r|{r.borrow_mut().insert(request);});state.music_control_status.set("Loading demo…".into());}
++    else {state.music_control_status.set("Demo command could not reach Rustel".into());}
 +}
 +
 +fn skip_cycles(state: ViewerState, delta:f64) {
@@ -908,6 +919,10 @@ index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f932
 +                    <div class="music-help" role="status">{move || state.render_error.get()}</div>
 +                    <div class="music-help">{move || state.music_status.get()}</div>
 +                    <div class="music-help">{move || state.music_control_status.get()}</div>
++                    <div class="music-help" title=move ||state.music.with(|s|s.as_ref().map(|s|s.session_file.clone()).unwrap_or_default())>
++                        {move ||state.music.with(|s|s.as_ref().map(|s|s.session_file.rsplit(['/', '\\']).next().unwrap_or_default().to_owned()).unwrap_or_default())}
++                    </div>
++                    <div class="music-help">{move ||state.music.with(|s|s.as_ref().and_then(|s|s.file_error.clone()).unwrap_or_default())}</div>
 +                    <div class="music-help">{move || {
 +                        let status=state.music.with(|s|s.as_ref().and_then(|s|s.transport.as_ref()).map(|t|if t.paused {"PAUSED"} else {"PLAYING"}).unwrap_or("TRANSPORT UNAVAILABLE"));
 +                        format!("{status} · {:.0} FPS",state.fps.get())
@@ -918,6 +933,13 @@ index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f932
 +                    </select>
 +                </div>
 +                <div class="music-controls">
++                    <select class="music-select" aria-label="Demo" disabled=move ||state.music.with(|s|s.as_ref().is_none_or(|s|s.demos.is_empty()))
++                        prop:value=move ||state.music.with(|s|s.as_ref().map(|s|s.demo.clone()).unwrap_or_default())
++                        on:change=move |e|select_demo(state,event_target_value(&e))>
++                        <option value="">"Select demo…"</option>
++                        <For each=move ||state.music.with(|s|s.as_ref().map(|s|s.demos.clone()).unwrap_or_default()) key=|name|name.clone()
++                            children=move |name|view! {<option value=name.clone()>{name.clone()}</option>} />
++                    </select>
 +                    <Show when=move ||!state.render_error.get().is_empty()>
 +                        <button on:click=move |_| {if let Some(w)=web_sys::window(){let _=w.location().reload();}}>"Restart 3D"</button>
 +                    </Show>
@@ -1030,7 +1052,7 @@ index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f932
 +                    <div class="music-help">{move || if state.music_mode.get() == 0 { "DRAG TO ORBIT · SCROLL TO ZOOM" } else { "DRAG TO PAN · WHEEL TO ZOOM · DOUBLE CLICK TO RESET · AUDIO VIEWS USE THE MASTER TAP" }}</div>
 +                </div>
 +                <div class="music-clock">
-+                    <div class="music-eyebrow">{move || state.music.get().map(|s| format!("{:.0} BPM / {} LANES", s.cps * 240.0, s.lanes.len())).unwrap_or("WAITING FOR RUSTEL".into())}</div>
++                    <div class="music-eyebrow">{move || state.music.get().map(|s| format!("{:.0} BPM / {} LANES", s.tempo.as_ref().map_or(s.cps * 240.0,|t|t.bpm), s.lanes.len())).unwrap_or("WAITING FOR RUSTEL".into())}</div>
 +                    <div class="music-cycle">{move || state.music.get().map(|s| format!("{:07.2}", s.cycle)).unwrap_or("0000.00".into())}</div>
 +                    <div class="music-help">"CYCLES"</div>
 +                </div>

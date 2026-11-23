@@ -148,6 +148,33 @@ void RustelTranspose::CreateUIControls()
    IDrawableModule::CreateUIControls();
    mSlider = new IntSlider(this, "semitones", 5, 5, 160, 15, &mSemitones, -48, 48);
 }
+
+void RustelLink::Demo(const std::string& session, int64_t generation, const std::string& name)
+{
+   auto* command = new juce::DynamicObject();
+   command->setProperty("request", juce::Uuid().toString());
+   command->setProperty("session", juce::String(session));
+   command->setProperty("generation", juce::int64(generation));
+   command->setProperty("lane", "");
+   command->setProperty("demo", juce::String(name));
+   MusicConnection::Get().Send(juce::var(command));
+}
+
+void RustelLink::Tempo(const std::string& session, int64_t generation, double bpm, int top, int bottom)
+{
+   auto* command = new juce::DynamicObject();
+   command->setProperty("request", juce::Uuid().toString());
+   command->setProperty("session", juce::String(session));
+   command->setProperty("generation", juce::int64(generation));
+   command->setProperty("lane", "");
+   auto* tempo = new juce::DynamicObject();
+   tempo->setProperty("bpm", bpm);
+   tempo->setProperty("top", top);
+   tempo->setProperty("bottom", bottom);
+   command->setProperty("tempo", juce::var(tempo));
+   MusicConnection::Get().Send(juce::var(command));
+}
+
 void RustelTranspose::DrawModule()
 {
    if (!Minimized() && IsVisible())

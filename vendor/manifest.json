@@ -29,7 +29,7 @@
         },
         {
           "path": "Source/RustelLink.h",
-          "sha256": "c9128a69a1366304119c7842e7ebc3d48f879ed8943699735a61c59bacb9a45d"
+          "sha256": "3da31c6681ab231af8a5df5d45439be4f11862dfe0d1e6514ab11c30b80f0f8d"
         },
         {
           "path": "Source/RustelNoteGlyph.h",
@@ -37,7 +37,7 @@
         },
         {
           "path": "Source/RustelPattern.cpp",
-          "sha256": "5e3db81ba052605920941d958800e4f9f4cbbb1461a9a1034514f3796eb73787"
+          "sha256": "2bd355ba0bbe86d41addf9cfc32825995bc345a77f248af2dee244bde2b16be8"
         },
         {
           "path": "Source/RustelPattern.h",
@@ -49,11 +49,11 @@
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "7b711574e367ad21760e6dfad007b390efda0ba913147893cb4456a808396296"
+          "sha256": "c503d89aa388350fab5270aa1ff171b7c4ec26813fa54f9d31ce7dce9ed3aa20"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "d9d79d6e36ace986100ae5491b3066f683963f16fec5f7b2fbd976ba07981120"
+          "sha256": "a9d61d123a324387adacbeeb7126eaa1a0c74ba32171eea4cfe321cd28a8e7f1"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -64,8 +64,8 @@
           "sha256": "607d2c33cbf2fefe146d123e746136cdac008333fdf56ef9f844e97eb04b9768"
         }
       ],
-      "patch_sha256": "9b3dd5afe56617b6173263597041e0a652d48a98e181dbfee1f12aa2bded4b87",
-      "result_tree": "9e612d585d4ba4982847d97ba8293da32fda8252"
+      "patch_sha256": "e941137095bf1e56dc3f5a9335dd65ddee4e302bea081031460e1cca34a3955d",
+      "result_tree": "03f37ed8625def7b72e9604838449646ffb6729c"
     },
     {
       "name": "rustel",
@@ -163,7 +163,7 @@
         },
         {
           "path": "crates/runtime/src/session/music.rs",
-          "sha256": "5c9b7a00c7a1e7a88d598f55a915a59395816a8f0ea88af51269bb40b80d6390"
+          "sha256": "2939d22a56679586ced4007401350cbe60e06b844d1ca0623e51c217d8e87681"
         },
         {
           "path": "crates/runtime/src/session/scheduling.rs",
@@ -176,6 +176,10 @@
         {
           "path": "crates/runtime/src/vst/lanes.rs",
           "sha256": "6d28b31d6acf7faf0e8d0657af6d52386dc4a96e6ef3eed360171a73644d9209"
+        },
+        {
+          "path": "crates/runtime/src/watch.rs",
+          "sha256": "4f1167552d45c91d69091b75795d5cfd1f44bdae349a1f8dccd0ee363718fd0c"
         },
         {
           "path": "crates/runtime/tests/music_telemetry.rs",
@@ -195,11 +199,15 @@
         },
         {
           "path": "crates/transpiler/src/lib.rs",
-          "sha256": "628186871d158bd215a9720460299eeba39b0f4d0597086b34f2a29e998f8897"
+          "sha256": "676f3d69dc40598c290885033f4196b8afadca5874324232e1c6a75f56e87174"
+        },
+        {
+          "path": "crates/transpiler/src/music_transport.rs",
+          "sha256": "4fea8c3c5330b5e1adcdd3c7bffe1d4df131b0d9d389eea896b2cc8f34b95f06"
         }
       ],
-      "patch_sha256": "a7ade76c567004addc195fcced5c9eff10286966c389282934b9efacbe6eae7a",
-      "result_tree": "c8145b2f455bd123170fa70db2b0baad4a263d1a"
+      "patch_sha256": "f8c53772193a2faf6dcb1bbe4c7165954970af59da678abacc555b0b918c44e1",
+      "result_tree": "b650e81d2d70edae758d5759a7deac85b185fe48"
     },
     {
       "name": "nightshade-viewer",
@@ -241,7 +249,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "e72731702300ac4cb944177f7fc99c7c191fceee84c9e1a4613f8da96d467f90"
+          "sha256": "0519c6766eff7bf84d1acbc44a89e87764b70f7cd9f768793a6e61564c93dc05"
         },
         {
           "path": "src/music_canvas.rs",
@@ -276,8 +284,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "3f9ead587aa8f52612223d44df1ac823c0e9d74f1d2f22eae9c7eb9949b1b565",
-      "result_tree": "0f069cf7cf2c70efa9f14dd080a08a1246f6bda5"
+      "patch_sha256": "f29ab1f1505782c96138d53738590d629196d321650b82a1f7c12a8adc6b1665",
+      "result_tree": "24d62db77cadb20621f752bff7d1ccca35fa0fce"
     },
     {
       "name": "hearsay",

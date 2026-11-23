@@ -1,4 +1,5 @@
 #pragma once
+#include <juce_core/juce_core.h>
 
 #include "IDrawableModule.h"
 #include "DropdownList.h"
@@ -75,6 +76,7 @@ private:
    struct Binding { int from, to; ofColor color; std::string name; int definitionFrom{ 0 }, definitionTo{ 0 }; };
    std::vector<Binding> mBindings;
    void PollAudio();
+   void PollSessionControls(const juce::var& session);
    void DrawAudioView(float top, float bottom, double dt);
    std::vector<float> mAudioScope, mAudioSpectrum;
    std::vector<ofVec2f> mAudioSides;
@@ -93,6 +95,14 @@ private:
    DropdownList* mSessions{ nullptr };
    DropdownList* mLanePicker{ nullptr };
    DropdownList* mViewPicker{ nullptr };
+   DropdownList* mDemoPicker{ nullptr };
+   std::vector<std::string> mDemos;
+   int mDemoIndex{-1};
+   std::string mClockSession, mClockDemo;
+   double mNativeBpm{0}, mRemoteBpm{0}, mTempoChangedAt{0}, mTempoRetryAt{0};
+   int mNativeTop{0}, mNativeBottom{0}, mRemoteTop{0}, mRemoteBottom{0};
+   bool mTempoDirty{false};
+   std::string mSessionFile, mFileError;
    int mViewMode{ 0 };
    FloatSlider* mYawSlider{ nullptr };
    FloatSlider* mTiltSlider{ nullptr };

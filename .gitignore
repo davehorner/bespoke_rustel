@@ -8,6 +8,7 @@
 # Local tools, profiles and runtime state
 /music-link/tools/
 /music-link/logs/
+/music-link/sessions/
 /music-link/browser-test-profile/
 /music-link/launcher-state.json
 /music-link/launcher-state.json.tmp

@@ -3,8 +3,9 @@
 This first implementation discovers the `$:` lanes of an independently running
 Rustel session, lets a Bespoke node transpose a selected lane, and displays
 source/output events in Nightshade Viewer. Rustel continues rendering the sound.
-Playback stays in Rustel; telemetry includes audio-analysis frames. No second
-pattern evaluation is performed.
+Playback stays in Rustel; telemetry includes audio-analysis frames. Observation
+uses accepted scheduler events, without a second pattern evaluation. Explicit
+demo selection and tempo edits reload the score in Rustel.
 
 See [the upstream contribution package](contribution/README.md) for screenshots,
 architecture, reproduction steps and discussion/PR drafts.
@@ -37,6 +38,49 @@ sources and rebuilds binaries and the web viewer when their inputs are newer.
 It upgrades only recognized earlier integration versions; conflicting local edits
 stop setup before it changes any project. Save and close running apps before a
 rebuild. The demo patch is loaded on a fresh Bespoke launch.
+
+## Demo selection and session scores
+
+The **demo** dropdown in Bespoke's Rustel viewer and Nightshade lists all regular
+files under `music-link/strudel`, including subfolders. Adding a file updates the
+catalog without rebuilding. The committed demos are `demo_arrangement.strudel`
+and `many_lanes.strudel`. Selecting a demo replaces only the selected Rustel
+session's active score; its template is never edited.
+
+A fresh launcher copies the initial template (by default `demo_arrangement`) to
+`music-link/sessions/<demo-name>-<unique-id>.strudel` and starts Rustel watching
+that file. The filename stays stable when switching demos. Multiple instances
+have independent files, shown in the viewers. Sessions and their ownership files
+are local working state and are ignored by Git. Independently started publishers
+also receive a session mirror; launcher-created sessions watch their working file
+directly. `-Score` on Windows and `--score` on macOS/Linux select a different
+initial template, which is copied rather than edited in place.
+
+Bespoke's actual **transport module** controls BPM and the time-signature top and
+bottom numbers. Selecting a Rustel session/demo initializes that transport from
+the score. Subsequent native control changes are debounced and update only that
+session. The accepted score is persisted by the background file worker. A demo
+with an explicit tempo uses it; one without a tempo inherits the current clock.
+
+For example, 135 quarter-note BPM in 6/8 writes:
+
+```javascript
+const bpm = 135;
+const timeSignatureTop = 6;
+const timeSignatureBottom = 8;
+setcpm(bpm * timeSignatureBottom / (4 * timeSignatureTop));
+```
+
+One cycle represents one bar, giving 45 cycles/minute in this example. Parser
+spans update existing bindings and tempo calls without changing pattern strings,
+comments, or other variables in a shared declaration. Source templates remain
+unchanged. File writes are atomic, and a newer disk edit is preserved until the
+watched player accepts it. Persisting an already installed control edit does not
+cause the file watcher to evaluate it again.
+
+After building, `python music-link/check-session-files.py` exercises two silent
+Rustel instances, demo discovery/switching, time-signature rewriting, file
+ownership, and template preservation without touching an existing session.
 
 ## Named pattern colors
 

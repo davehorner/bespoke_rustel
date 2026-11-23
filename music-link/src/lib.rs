@@ -326,6 +326,16 @@ pub struct Binding {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(default)]
+    pub demos: Vec<String>,
+    #[serde(default)]
+    pub demo: String,
+    #[serde(default)]
+    pub session_file: String,
+    #[serde(default)]
+    pub file_error: Option<String>,
+    #[serde(default)]
+    pub tempo: Option<TempoSettings>,
+    #[serde(default)]
     pub transport: Option<TransportState>,
     #[serde(default)]
     pub bindings: Vec<Binding>,
@@ -429,6 +439,13 @@ impl Snapshot {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Command {
     #[serde(default)]
+    pub demo: Option<String>,
+    #[serde(default)]
+    pub tempo: Option<TempoSettings>,
+    /// Filled only by the producer's file worker, never accepted over the wire.
+    #[serde(skip)]
+    pub source_update: Option<String>,
+    #[serde(default)]
     pub transport: Option<TransportCommand>,
     pub request: String,
     pub session: String,
@@ -446,12 +463,17 @@ impl Command {
         if self.session != snapshot.session || self.generation != snapshot.generation {
             return Err("stale session or score generation");
         }
+        let source_control=self.demo.is_some() || self.tempo.is_some() || self.source_update.is_some();
+        if usize::from(self.demo.is_some())+usize::from(self.tempo.is_some())+usize::from(self.transport.is_some())>1 {return Err("mixed control actions");}
+        if source_control && (self.solo.is_some() || self.semitones!=0) {return Err("mixed source and lane command");}
+        if let Some(demo)=&self.demo {if demo.is_empty() || demo.len()>512 {return Err("invalid demo name");}}
+        if let Some(tempo)=&self.tempo {tempo.validate()?;}
         if let Some(transport) = &self.transport {
             if snapshot.transport.is_none() {return Err("transport unavailable");}
             if self.solo.is_some() || self.semitones != 0 {return Err("mixed transport and lane command");}
             if let TransportCommand::Seek {cycle} = transport {if !cycle.is_finite() || !(0.0..=1_000_000.0).contains(cycle) {return Err("invalid seek cycle");}}
         }
-        if self.transport.is_none() && self.solo != Some(false) && !snapshot.lanes.iter().any(|lane| lane.id == self.lane) {
+        if !source_control && self.transport.is_none() && self.solo != Some(false) && !snapshot.lanes.iter().any(|lane| lane.id == self.lane) {
             return Err("unknown lane");
         }
         if !(-48..=48).contains(&self.semitones) || self.request.len() > 128 {
@@ -459,6 +481,17 @@ impl Command {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TempoSettings {pub bpm:f64,pub top:u32,pub bottom:u32}
+impl TempoSettings {
+    pub fn validate(&self)->Result<(), &'static str> {
+        if !self.bpm.is_finite() || !(1.0..=1000.0).contains(&self.bpm) || !(1..=64).contains(&self.top)
+            || !self.bottom.is_power_of_two() || self.bottom>64 {return Err("invalid tempo or time signature");}
+        Ok(())
+    }
+    pub fn cps(&self)->f64 {self.bpm*f64::from(self.bottom)/(240.0*f64::from(self.top))}
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -483,6 +516,8 @@ pub struct Response {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod session_files;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
 
@@ -547,6 +582,7 @@ mod tests {
             ..Default::default()
         };
         let mut command = Command {
+            demo: None, tempo: None, source_update: None,
             transport: None,
             request: "r".into(),
             session: "a".into(),

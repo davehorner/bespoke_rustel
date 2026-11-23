@@ -412,10 +412,10 @@ index 0000000000000000000000000000000000000000..0ee089c27d58e7f6c20f7bc96f78c7f0
 +};
 diff --git a/Source/RustelLink.h b/Source/RustelLink.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..5dfc541d21cbf6e61ec028b0aa57e057b9187a6b
+index 0000000000000000000000000000000000000000..a0e12be45a393c402efd090235552ccf6c319c24
 --- /dev/null
 +++ b/Source/RustelLink.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,15 @@
 +#pragma once
 +#include <juce_core/juce_core.h>
 +#include <string>
@@ -428,6 +428,8 @@ index 0000000000000000000000000000000000000000..5dfc541d21cbf6e61ec028b0aa57e057
 +   std::string Status();
 +   void Solo(const std::string& session, int64_t generation, const std::string& lane, bool enabled);
 +   void Transport(const std::string& session, int64_t generation, const std::string& action, double cycle = 0);
++   void Demo(const std::string& session, int64_t generation, const std::string& name);
++   void Tempo(const std::string& session, int64_t generation, double bpm, int top, int bottom);
 +}
 diff --git a/Source/RustelNoteGlyph.h b/Source/RustelNoteGlyph.h
 new file mode 100644
@@ -459,10 +461,10 @@ index 0000000000000000000000000000000000000000..5c3a7105f53044f9cb24af2a2b47f4ab
 +}
 diff --git a/Source/RustelPattern.cpp b/Source/RustelPattern.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..446544c55622e10ee8fdabd7e3c376453e032e01
+index 0000000000000000000000000000000000000000..a7ae959a7cc8c6645a783ccd6e68f6b9d46452c2
 --- /dev/null
 +++ b/Source/RustelPattern.cpp
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,318 @@
 +#include "RustelPattern.h"
 +#include "OpenFrameworksPort.h"
 +#include "FileStream.h"
@@ -613,6 +615,33 @@ index 0000000000000000000000000000000000000000..446544c55622e10ee8fdabd7e3c37645
 +   IDrawableModule::CreateUIControls();
 +   mSlider = new IntSlider(this, "semitones", 5, 5, 160, 15, &mSemitones, -48, 48);
 +}
++
++void RustelLink::Demo(const std::string& session, int64_t generation, const std::string& name)
++{
++   auto* command = new juce::DynamicObject();
++   command->setProperty("request", juce::Uuid().toString());
++   command->setProperty("session", juce::String(session));
++   command->setProperty("generation", juce::int64(generation));
++   command->setProperty("lane", "");
++   command->setProperty("demo", juce::String(name));
++   MusicConnection::Get().Send(juce::var(command));
++}
++
++void RustelLink::Tempo(const std::string& session, int64_t generation, double bpm, int top, int bottom)
++{
++   auto* command = new juce::DynamicObject();
++   command->setProperty("request", juce::Uuid().toString());
++   command->setProperty("session", juce::String(session));
++   command->setProperty("generation", juce::int64(generation));
++   command->setProperty("lane", "");
++   auto* tempo = new juce::DynamicObject();
++   tempo->setProperty("bpm", bpm);
++   tempo->setProperty("top", top);
++   tempo->setProperty("bottom", bottom);
++   command->setProperty("tempo", juce::var(tempo));
++   MusicConnection::Get().Send(juce::var(command));
++}
++
 +void RustelTranspose::DrawModule()
 +{
 +   if (!Minimized() && IsVisible())
@@ -923,16 +952,17 @@ index 0000000000000000000000000000000000000000..6fb27e1234173c7a990c80bb7c320c17
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b764f796951
+index 0000000000000000000000000000000000000000..040d323baf9bd33994b0f9fead92a8bfd3a37183
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,1071 @@
+@@ -0,0 +1,1133 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
 +#include "FileStream.h"
 +#include "ModularSynth.h"
 +#include "RustelNoteGlyph.h"
++#include "Transport.h"
 +#include "RustelSourceNavigation.h"
 +#include "nanovg/nanovg.h"
 +#include <algorithm>
@@ -980,6 +1010,55 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +: IDrawableModule(900, 640)
 +{}
 +
++void RustelView::PollSessionControls(const juce::var& session)
++{
++   mSessionFile = session["session_file"].toString().toStdString();
++   mFileError = session["file_error"].toString().toStdString();
++   std::vector<std::string> demos;
++   if (auto* names = session["demos"].getArray())
++      for (const auto& name : *names) demos.push_back(name.toString().toStdString());
++   if (demos != mDemos)
++   {
++      mDemos = demos; mDemoPicker->Clear();
++      for (int i=0; i<int(mDemos.size()); ++i) mDemoPicker->AddLabel(mDemos[i],i);
++   }
++   const auto demo = session["demo"].toString().toStdString();
++   mDemoIndex = -1;
++   for (int i=0; i<int(mDemos.size()); ++i) if (mDemos[i] == demo) mDemoIndex = i;
++   const auto tempo = session["tempo"];
++   if (!TheTransport || !tempo.isObject()) return;
++   const double remote = double(tempo["bpm"]);
++   const int top = int(tempo["top"]), bottom = int(tempo["bottom"]);
++   if (!std::isfinite(remote) || remote < 1 || top < 1 || bottom < 1) return;
++   const auto id = session["session"].toString().toStdString();
++   const double now = juce::Time::getMillisecondCounterHiRes();
++   if (mClockSession != id || mClockDemo != demo)
++   {
++      TheTransport->SetTempo(float(remote)); TheTransport->SetTimeSignature(top,bottom);
++      mClockSession = id; mClockDemo = demo;
++      mNativeBpm = remote; mNativeTop = top; mNativeBottom = bottom; mTempoDirty = false;
++   }
++   double local = TheTransport->GetTempo();
++   int localTop = TheTransport->GetTimeSigTop(), localBottom = TheTransport->GetTimeSigBottom();
++   if (std::abs(local-mNativeBpm)>0.001 || localTop!=mNativeTop || localBottom!=mNativeBottom)
++   {
++      mNativeBpm = local; mNativeTop = localTop; mNativeBottom = localBottom;
++      mTempoDirty = true; mTempoChangedAt = now; mTempoRetryAt = now+250;
++   }
++   if (mTempoDirty && std::abs(remote-local)<0.001 && top==localTop && bottom==localBottom) mTempoDirty=false;
++   if (!mTempoDirty && (std::abs(remote-mRemoteBpm)>0.001 || top!=mRemoteTop || bottom!=mRemoteBottom))
++   {
++      TheTransport->SetTempo(float(remote)); TheTransport->SetTimeSignature(top,bottom);
++      mNativeBpm=remote; mNativeTop=top; mNativeBottom=bottom;
++   }
++   if (mTempoDirty && now>=mTempoRetryAt && now-mTempoChangedAt>=250)
++   {
++      RustelLink::Tempo(id,int64_t(session["generation"]),mNativeBpm,mNativeTop,mNativeBottom);
++      mTempoRetryAt=now+1000;
++   }
++   mRemoteBpm=remote; mRemoteTop=top; mRemoteBottom=bottom;
++}
++
 +void RustelView::CreateUIControls()
 +{
 +   IDrawableModule::CreateUIControls();
@@ -987,6 +1066,7 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +   mLanePicker = new DropdownList(this, "lane", 260, 6, &mLaneIndex, 180);
 +   mLanePicker->AddLabel("all lanes", -1);
 +   mViewPicker = new DropdownList(this, "view", 450, 6, &mViewMode, 180);
++   mDemoPicker = new DropdownList(this, "demo", 650, 6, &mDemoIndex, 220);
 +   mViewPicker->AddLabel("stage", 0);
 +   mViewPicker->AddLabel("piano roll", 1);
 +   mViewPicker->AddLabel("wordfall", 2);
@@ -1021,6 +1101,12 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +
 +void RustelView::DropdownUpdated(DropdownList* list, int, double)
 +{
++   if (list == mDemoPicker)
++   {
++      if (mLive && mDemoIndex >= 0 && mDemoIndex < int(mDemos.size()))
++         RustelLink::Demo(mSessionId, mGeneration, mDemos[mDemoIndex]);
++      return;
++   }
 +   if (list == mViewPicker)
 +   {
 +      mPanX = mPanY = 0;
@@ -1091,6 +1177,7 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +   if (!std::isfinite(cycle) || !std::isfinite(cps) || cps <= 0)
 +      return;
 +   mLive = true;
++   PollSessionControls(session);
 +   mSoloLane = session["solo_lane"].toString().toStdString();
 +   mSolo = !mSoloLane.empty();
 +   PollAudio();
@@ -1354,6 +1441,7 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +   mSessions->Draw();
 +   mLanePicker->Draw();
 +   mViewPicker->Draw();
++   mDemoPicker->Draw();
 +   mYawSlider->SetShowing(mViewMode == 0);
 +   mTiltSlider->SetShowing(mViewMode == 0);
 +   mOrbitCheckbox->SetShowing(mViewMode == 0);
@@ -1411,7 +1499,7 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +   ofSetColor(live ? ofColor(80, 235, 200) : ofColor(150, 160, 175));
 +   DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "MASTER AUDIO ANALYSIS" : (live ? "LIVE PATTERN FIELD" : "WAITING FOR RUSTEL"), 12, 70);
 +   ofSetColor(155, 175, 200);
-+   DrawTextNormal(ofToString(mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
++   DrawTextNormal(ofToString(mRemoteBpm > 0 ? mRemoteBpm : mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
 +   const float sourceHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f);
 +   const float top = 82, bottom = mHeight - sourceHeight - 50, fieldHeight = bottom - top;
 +   if (mViewMode == 0)
@@ -1842,7 +1930,10 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y)
 +{
 +   ofSetColor(155, 175, 200);
-+   DrawTextNormal(mSourceFocusName.empty() ? "evaluated document / sounding tokens highlighted" : "evaluated document / selected: " + mSourceFocusName, 16, y, 10);
++   auto heading = mSourceFocusName.empty() ? std::string("evaluated document / sounding tokens highlighted") : "evaluated document / selected: " + mSourceFocusName;
++   if (!mSessionFile.empty()) heading += " / " + juce::File(mSessionFile).getFileName().toStdString();
++   if (!mFileError.empty()) heading = mFileError;
++   DrawTextNormal(heading, 16, y, 10);
 +   y += 18;
 +   const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
 +   const int columns = std::max(10, int((mWidth - 42) / charWidth));
@@ -2000,11 +2091,12 @@ index 0000000000000000000000000000000000000000..395bd6974dea69460ba05c9307362b76
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..1c0c1268791e1c26de0a53cab83c78db585899ff
+index 0000000000000000000000000000000000000000..62e119d6b915dfacbfa1e44369afcc39077bc107
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,137 @@
 +#pragma once
++#include <juce_core/juce_core.h>
 +
 +#include "IDrawableModule.h"
 +#include "DropdownList.h"
@@ -2081,6 +2173,7 @@ index 0000000000000000000000000000000000000000..1c0c1268791e1c26de0a53cab83c78db
 +   struct Binding { int from, to; ofColor color; std::string name; int definitionFrom{ 0 }, definitionTo{ 0 }; };
 +   std::vector<Binding> mBindings;
 +   void PollAudio();
++   void PollSessionControls(const juce::var& session);
 +   void DrawAudioView(float top, float bottom, double dt);
 +   std::vector<float> mAudioScope, mAudioSpectrum;
 +   std::vector<ofVec2f> mAudioSides;
@@ -2099,6 +2192,14 @@ index 0000000000000000000000000000000000000000..1c0c1268791e1c26de0a53cab83c78db
 +   DropdownList* mSessions{ nullptr };
 +   DropdownList* mLanePicker{ nullptr };
 +   DropdownList* mViewPicker{ nullptr };
++   DropdownList* mDemoPicker{ nullptr };
++   std::vector<std::string> mDemos;
++   int mDemoIndex{-1};
++   std::string mClockSession, mClockDemo;
++   double mNativeBpm{0}, mRemoteBpm{0}, mTempoChangedAt{0}, mTempoRetryAt{0};
++   int mNativeTop{0}, mNativeBottom{0}, mRemoteTop{0}, mRemoteBottom{0};
++   bool mTempoDirty{false};
++   std::string mSessionFile, mFileError;
 +   int mViewMode{ 0 };
 +   FloatSlider* mYawSlider{ nullptr };
 +   FloatSlider* mTiltSlider{ nullptr };

@@ -31,6 +31,8 @@ impl Link {
                     result = client.connect("127.0.0.1:9612") => { if result.is_err() { return; } }
                 }
                 let _ = client.subscribe(&[COMMAND_TOPIC]).await;
+                let mut files=crate::session_files::SessionFiles::environment();
+                let mut active=None::<Snapshot>;
                 let mut timer = tokio::time::interval(Duration::from_millis(33));
                 loop {
                     tokio::select! {
@@ -41,7 +43,12 @@ impl Link {
                                 let _ = client.publish_json(AUDIO_TOPIC, &audio, Route::Global).await;
                             }
                             let snapshot = shared.lock().ok().and_then(|mut guard| guard.take());
-                            if let Some(snapshot) = snapshot {
+                            if let Some(mut snapshot) = snapshot {
+                                match files.sync(&mut snapshot) {
+                                    Ok(())=>{},
+                                    Err(error)=>snapshot.file_error=Some(error.to_string()),
+                                }
+                                active=Some(snapshot.clone());
                                 let _ = client.publish_json(SNAPSHOT_TOPIC, &snapshot, Route::Global).await;
                             }
                             while let Ok(response) = responses_rx.try_recv() {
@@ -50,7 +57,19 @@ impl Link {
                         }
                         message = client.next_message() => {
                             if let Some(message) = message {
-                                if let Ok(command) = message.read_json::<Command>() {
+                                if let Ok(mut command) = message.read_json::<Command>() {
+                                    // Commands are broadcast. Other instances must never
+                                    // answer (or read a demo) for somebody else's session.
+                                    if active.as_ref().is_none_or(|s|s.session!=command.session) {continue;}
+                                    if let Some(name)=&command.demo {
+                                        let result=active.as_ref().ok_or("session not ready".to_owned())
+                                            .and_then(|s|command.validate(s).map_err(str::to_owned))
+                                            .and_then(|_|files.load_demo(name).map_err(|e|e.to_string()));
+                                        match result {
+                                            Ok(source)=>command.source_update=Some(source),
+                                            Err(message)=>{let _=client.publish_json(RESPONSE_TOPIC,&Response {request:command.request,accepted:false,message},Route::Global).await;continue;}
+                                        }
+                                    }
                                     let _ = commands_tx.try_send(command);
                                 }
                             } else { break; }

@@ -130,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 } else if header.starts_with("POST /transpose ")
                     || header.starts_with("POST /solo ")
+                    || header.starts_with("POST /control ")
                 {
                     match serde_json::from_slice::<Command>(&bytes[header_end..header_end + length])
                     {

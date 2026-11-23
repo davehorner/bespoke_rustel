@@ -14,6 +14,7 @@ pub(super) struct MusicState {
     last_publish: Instant,
     paused_at: Option<f64>,
     inspection_cycle: Option<f64>,
+    time_signature: (u32,u32),
     pending_transport: std::collections::VecDeque<music_link::Command>,
     #[cfg(feature = "device-audio")]
     audio: Option<MusicAudio>,
@@ -43,6 +44,7 @@ impl Default for MusicState {
             last_publish: Instant::now(),
             paused_at: None,
             inspection_cycle: None,
+            time_signature: (4,4),
             pending_transport: Default::default(),
             #[cfg(feature = "device-audio")]
             audio: None,
@@ -130,7 +132,26 @@ impl Session {
         if let Some(command)=self.music.pending_transport.pop_front() {
             let valid=command.validate(&self.music.snapshot);
             let result=match valid {
-                Ok(())=>self.music_transport_at(command.transport.as_ref().expect("transport command"),now),
+                Ok(())=>{
+                    if command.tempo.is_some() || command.source_update.is_some() {
+                        (|| {
+                            let before=self.generation();
+                            let phase=self.music.paused_at.unwrap_or_else(||self.cycle_at_time(now));
+                            let mut source=if let Some(tempo)=&command.tempo {
+                                rustel_transpiler::music_transport::rewrite(self.active_source().unwrap_or_default(),tempo.bpm,tempo.top,tempo.bottom).map_err(RuntimeError::Message)?
+                            } else {command.source_update.clone().ok_or_else(||RuntimeError::Message("demo source unavailable".into()))?};
+                            if command.demo.is_some()&&rustel_transpiler::running_calls(&source,&["setcpm","setcps"]).is_empty() {
+                                let (top,bottom)=self.music.time_signature;
+                                source=rustel_transpiler::music_transport::rewrite(&source,self.cps()*240.0*f64::from(top)/f64::from(bottom),top,bottom).map_err(RuntimeError::Message)?;
+                            }
+                            let after=self.reload_at(&source,false,now)?;
+                            if let Some(tempo)=&command.tempo {self.retime(now,tempo.cps(),phase);}
+                            if let Some(demo)=&command.demo {self.music.snapshot.demo=demo.clone();}
+                            Ok(Some((before,after)))
+                        })()
+                    } else if let Some(action)=&command.transport {self.music_transport_at(action,now)}
+                    else {Err(RuntimeError::Message("source control unavailable".into()))}
+                },
                 Err(message)=>Err(RuntimeError::Message(message.into())),
             };
             let accepted=result.is_ok();
@@ -206,6 +227,7 @@ impl Session {
         let source = self.active_source().unwrap_or_default().to_owned();
         let state = &mut self.music;
         if state.snapshot.source != source {
+            state.time_signature=rustel_transpiler::music_transport::time_signature(&source);
             state.snapshot.events.clear();
             state.snapshot.rests.clear();
             state.inspection_cycle=state.paused_at;
@@ -229,6 +251,7 @@ impl Session {
         state.snapshot.generation = generation;
         state.snapshot.cycle = cycle;
         state.snapshot.cps = cps;
+        state.snapshot.tempo=Some(music_link::TempoSettings {bpm:cps*240.0*f64::from(state.time_signature.0)/f64::from(state.time_signature.1),top:state.time_signature.0,bottom:state.time_signature.1});
         state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some(), view_cycle:state.inspection_cycle});
         state.snapshot.lanes = lanes;
         for lane in &mut state.snapshot.lanes {
@@ -253,7 +276,7 @@ impl Session {
         for command in link.commands() {
             // Other sessions share the topic and must not answer this request.
             if command.session != state.snapshot.session { continue; }
-            if command.transport.is_some() {
+            if command.transport.is_some() || command.demo.is_some() || command.tempo.is_some() || command.source_update.is_some() {
                 if state.pending_transport.len()<64 {state.pending_transport.push_back(command);}
                 continue;
             }
@@ -368,6 +391,27 @@ impl Session {
 mod transport_tests {
     use super::*;
     #[test]
+    fn native_tempo_edits_source_and_demo_changes_replace_only_the_active_session() {
+        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
+            let mut session=Session::new().unwrap();session.music.link=Some(Link::connect().unwrap());
+            session.evaluate("setcpm(124/4); const bpm = 124; const bass = note(\"c3 e3\"); $: bass.s(\"sine\")").unwrap();
+            session.schedule_at(0.0).unwrap();
+            let mut command=music_link::Command {request:"tempo".into(),session:session.music.snapshot.session.clone(),generation:session.generation(),lane:String::new(),
+                semitones:0,solo:None,transport:None,demo:None,tempo:Some(music_link::TempoSettings {bpm:135.0,top:6,bottom:8}),source_update:None};
+            session.music.pending_transport.push_back(command.clone());
+            assert!(session.apply_pending_music_transport(0.1).unwrap().is_some());
+            assert!(session.active_source().unwrap().contains("const bpm = 135"));
+            assert_eq!(rustel_transpiler::music_transport::time_signature(session.active_source().unwrap()),(6,8));
+            assert!((session.cps()-0.75).abs()<1e-8);
+            command.generation=session.generation();command.tempo=None;command.demo=Some("next.strudel".into());
+            command.source_update=Some("setcpm(90/4); $: note(\"g3\").s(\"sine\")".into());
+            session.music.snapshot.generation=session.generation();
+            session.music.pending_transport.push_back(command);
+            assert!(session.apply_pending_music_transport(0.2).unwrap().is_some());
+            assert_eq!(session.music.snapshot.demo,"next.strudel");assert!(session.active_source().unwrap().contains("g3"));
+        }).unwrap().join().unwrap();
+    }
+    #[test]
     fn paused_and_stopped_scenes_keep_blocks_and_parts_at_the_inspection_cycle() {
         // Enable source/lane tagging in an isolated process, not the shared
         // environment of the parallel unit-test runner.
@@ -422,6 +466,7 @@ mod transport_tests {
             producer.step_unwatched_with_clock_and_cutover(&mut session,||0.0,48000,|_,_,_|{},|_|true).unwrap();
             let enqueue=|s:&mut Session,action| {
                 s.music.pending_transport.push_back(music_link::Command {
+                    demo:None,tempo:None,source_update:None,
                     request:"test".into(),session:s.music.snapshot.session.clone(),generation:s.music.snapshot.generation,
                     lane:String::new(),semitones:0,solo:None,transport:Some(action),
                 });

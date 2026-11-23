@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 mod arrange_marks;
+pub mod music_transport;
 mod callback_ir;
 mod frequency_sliders;
 mod surface_writes;

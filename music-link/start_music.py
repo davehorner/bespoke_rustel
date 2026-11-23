@@ -14,6 +14,7 @@ import urllib.request
 import webbrowser
 from native_ipc import unlink_stopped_mapping
 from build_inputs import needs_build
+from session_score import create_session_score
 
 ROOT = Path(__file__).resolve().parent.parent
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -245,7 +246,13 @@ class Launcher:
         if hub_state() is None:
             self.ensure("hub", hub)
         wait_for(lambda: hub_state() is not None, 15, "Music hub did not become ready; check ports 9612–9614 and logs")
-        env = dict(os.environ, RUSTEL_MUSIC_LINK="1", RUSTEL_LANE_AUDIO="1" if args.lane_audio else "0")
+        existing = next((r for r in self.state["processes"] if r["role"] == "rustel" and live_record(r)), None) or find_existing(rustel)
+        template = score
+        if not existing:
+            score = create_session_score(template, self.folder)
+            print(f"Session score: {score}")
+        env = dict(os.environ, RUSTEL_MUSIC_LINK="1", RUSTEL_LANE_AUDIO="1" if args.lane_audio else "0",
+                   MUSIC_LINK_ROOT=str(self.folder), RUSTEL_SESSION_FILE=str(score), RUSTEL_DEMO_NAME=template.name)
         arguments = ["play", str(score), "--watch", "--no-update-check", "--no-input"]
         if args.silent:
             arguments += ["--output", "silent"]
@@ -303,7 +310,7 @@ def page_ready(url):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--score", default=str(ROOT / "music-link/demo.strudel"))
+    parser.add_argument("--score", default=str(ROOT / "music-link/strudel/demo_arrangement.strudel"))
     parser.add_argument("--web", action=argparse.BooleanOptionalAction, default=True,
                         help="Start Nightshade and open its URL (default; --no-web disables)")
     parser.add_argument("--web-port", type=int, default=18765)
