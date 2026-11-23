@@ -577,7 +577,7 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3b6f14e4c25bd225533bff75bf6e799b02040c7f
+index 0000000000000000000000000000000000000000..6c7ef4106b09f63d925786c2d86a0bd45cbaa64b
 --- /dev/null
 +++ b/src/music.rs
 @@ -0,0 +1,396 @@
@@ -908,7 +908,7 @@ index 0000000000000000000000000000000000000000..3b6f14e4c25bd225533bff75bf6e799b
 +                            children=move |(i, lane)| {
 +                            let palette = ["#1ff2d1", "#ff596b", "#a36bff", "#ffba33", "#33a6ff", "#ff59cc", "#9eff47", "#ff8a38"];
 +                            let source = if lane.source.is_empty() { "Source unavailable: restart Rustel with the updated bridge.".to_string() } else { lane.source.clone() };
-+                            let preview = source.lines().next().unwrap_or("").to_string();
++                            let preview = if lane.source.is_empty() { source.clone() } else { lane.display_name() };
 +                            let expanded = RwSignal::new(false);
 +                            let lane_id = lane.id.clone();
 +                            let original_source = StoredValue::new(source.clone());
@@ -1977,10 +1977,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..7d776ff7eaf732d9f131bf62216adba6
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..49863109a63abb29918702bebf00aa102d675ec8
+index 0000000000000000000000000000000000000000..cb12d95d65d609b9b97a2e96f2837898a6d0ebe7
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,623 @@
+@@ -0,0 +1,635 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -2171,8 +2171,11 @@ index 0000000000000000000000000000000000000000..49863109a63abb29918702bebf00aa10
 +            }
 +            let heading_x=if child.is_some() {-4.0} else {-7.5};
 +            if let Some((p,_))=project(Vec3::new(heading_x,0.25,z)) {
-+                let label_width=self.lanes.get(index).and_then(|l| l.heading.as_ref()).and_then(|(entity,_)|world.core.get_text(*entity))
-+                    .and_then(|t|t.cached_mesh.as_ref()).map_or(30.0,|m|m.bounds.x/0.16*13.0).min(340.0);
++                let label_width=self.lanes.get(index).and_then(|l| l.heading.as_ref()).and_then(|(entity,_)| {
++                    let text=world.core.get_text(*entity)?.cached_mesh.as_ref()?;
++                    let scale=world.core.get_local_transform(*entity)?.scale.x;
++                    Some(text.bounds.x*scale*camera.projection_y*camera.height/(2.0*depth))
++                }).unwrap_or(30.0);
 +                hit |= x>=p[0]-3.0 && x<=p[0]+label_width && y>=p[1]-16.0 && y<=p[1]+12.0;
 +            }
 +            // The pulse ring is selectable along its circumference as well.
@@ -2497,7 +2500,16 @@ index 0000000000000000000000000000000000000000..49863109a63abb29918702bebf00aa10
 +                    *text = label.to_owned();
 +                }
 +                let heading_x=visible.get(index).filter(|row|protocol::music_link_types::virtual_parent(&row.id).is_some()).map_or(-7.5, |_|-4.0);
-+                label_pose(world, &label_camera, *entity, Vec3::new(heading_x, 0.25, z), index < count, 13.0);
++                let position=Vec3::new(heading_x,0.25,z);
++                let width=world.core.get_text(*entity).filter(|t|!t.dirty).and_then(|t|t.cached_mesh.as_ref()).map(|m|m.bounds.x)
++                    .unwrap_or(text.chars().count().max(1) as f32*0.09);
++                let pixels=label_camera.as_ref().and_then(|camera| {
++                    let clip=camera.clip*position.push(1.0);
++                    let viewport=world.resources.window.cached_viewport_size?.0 as f32;
++                    let x=(clip.x/clip.w+1.0)*viewport*0.5;
++                    (clip.w>0.0).then(||13.0_f32.min((viewport-x-24.0).max(1.0)*0.16/width.max(0.01)))
++                }).unwrap_or(13.0);
++                label_pose(world, &label_camera, *entity, position, index < count, pixels);
 +            }
 +            let child = visible.get(index).is_some_and(|row| protocol::music_link_types::virtual_parent(&row.id).is_some());
 +            let (rail_start, rail_end) = crate::music_text::rail_span(child);

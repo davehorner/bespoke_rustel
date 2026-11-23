@@ -433,8 +433,8 @@ void RustelView::DrawModule()
       auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
       if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
          expression = expression.fromFirstOccurrenceOf(":", false, false).trim();
-      expression = expression.upToFirstOccurrenceOf("\n", false, false).trim();
-      std::string name = expression.isEmpty() ? lane.label : expression.substring(0, 96).toStdString();
+      auto name = RustelSourceNavigation::SingleLine(expression.toStdString());
+      if (name.empty()) name = lane.label;
       mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
       if (open)
          for (const auto& part : lane.parts)
@@ -489,7 +489,7 @@ void RustelView::DrawModule()
          float x = float(b / 4 - cycle) * 5;
          line({ x, -0.1f, -0.5f }, { x, -0.1f, centerZ * 2 + 0.5f }, ofColor(35, 55, 80, int64_t(b) % 4 == 0 ? 150 : 65), int64_t(b) % 4 == 0 ? 1.2f : 0.6f);
       }
-      struct PartLabel { Screen point; std::string name; ofColor color; };
+      struct PartLabel { Screen point; std::string name; ofColor color; bool fitWidth{ false }; };
       std::vector<PartLabel> labels;
       std::vector<Face> faces;
       faces.reserve(std::min<size_t>(mEvents.size() * 12, 12000));
@@ -541,13 +541,14 @@ void RustelView::DrawModule()
          float z = row * 1.7f;
          auto color = RowColor(row);
          const auto heading = project({ -8.7f, 0.25f, z });
-         labels.push_back({ heading, mRows[row].label, color });
+         labels.push_back({ heading, mRows[row].label, color, true });
          if (!mRows[row].child && !mLanes[lane].parts.empty())
             mRowButtons.push_back({ ofRectangle(heading.x - 3, heading.y - 12, 24, 18), mLanes[lane].id });
          if (heading.y >= top && heading.y <= bottom)
          {
             const float inset = !mRows[row].child && !mLanes[lane].parts.empty() ? 24 : 0;
-            mSourceButtons.push_back({ ofRectangle(heading.x + inset, heading.y - 12, std::max(12.0f, std::min(340.0f, float(mRows[row].label.size() * 6)) - inset), 18), mLanes[lane].id, mRows[row].part });
+            const float captionWidth = std::min(gFont.GetStringWidth(mRows[row].label, 10), std::max(1.0f, mWidth - heading.x - 12));
+            mSourceButtons.push_back({ ofRectangle(heading.x + inset, heading.y - 12, std::max(12.0f, captionWidth - inset), 18), mLanes[lane].id, mRows[row].part });
          }
          line({ -9, 0, z }, { 6, 0, z }, WithAlpha(color, 80), 1.4f);
          float pulse = 0;
@@ -632,7 +633,9 @@ void RustelView::DrawModule()
       for (const auto& label : labels)
       {
          ofSetColor(label.color);
-         DrawTextNormal(label.name, label.point.x, label.point.y, 10);
+         const float width = label.fitWidth ? gFont.GetStringWidth(label.name, 10) : 0;
+         const float fontSize = width > 0 ? 10 * std::min(1.0f, std::max(1.0f, mWidth - label.point.x - 12) / width) : 10;
+         DrawTextNormal(label.name, label.point.x, label.point.y, fontSize);
       }
       ofPopMatrix(); // Restore the parent's module clip before drawing footer.
       ofPopStyle();

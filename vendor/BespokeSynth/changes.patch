@@ -796,10 +796,10 @@ index 0000000000000000000000000000000000000000..59b3baf0141acf7e115918a934461d82
 +};
 diff --git a/Source/RustelSourceNavigation.h b/Source/RustelSourceNavigation.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..0636913fa7ea5c1470470dd5407ce34a47d09050
+index 0000000000000000000000000000000000000000..a10f5a998cde9669b3a29211c2e3ced0655b6525
 --- /dev/null
 +++ b/Source/RustelSourceNavigation.h
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,81 @@
 +#pragma once
 +#include <algorithm>
 +#include <cstddef>
@@ -807,6 +807,29 @@ index 0000000000000000000000000000000000000000..0636913fa7ea5c1470470dd5407ce34a
 +
 +namespace RustelSourceNavigation
 +{
++   inline std::string SingleLine(const std::string& source)
++   {
++      std::string result;
++      size_t begin = 0;
++      while (begin < source.size())
++      {
++         const auto newline = source.find_first_of("\r\n", begin);
++         size_t end = newline == std::string::npos ? source.size() : newline;
++         size_t first = begin;
++         while (first < end && (source[first] == ' ' || source[first] == '\t')) ++first;
++         while (end > first && (source[end-1] == ' ' || source[end-1] == '\t')) --end;
++         if (end > first)
++         {
++            if (!result.empty()) result += ' ';
++            result.append(source, first, end-first);
++         }
++         if (newline == std::string::npos) break;
++         begin = newline + 1;
++      }
++      while (!result.empty() && result.back() == ';') result.pop_back();
++      return result;
++   }
++
 +   inline size_t LineStart(const std::string& text, size_t offset)
 +   {
 +      offset = std::min(offset, text.size());
@@ -860,10 +883,10 @@ index 0000000000000000000000000000000000000000..0636913fa7ea5c1470470dd5407ce34a
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89fcfc27b04
+index 0000000000000000000000000000000000000000..29dfbfdc40114eec2cc191d51faff5d9efa3765c
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,984 @@
+@@ -0,0 +1,987 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -1299,8 +1322,8 @@ index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89f
 +      auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
 +      if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
 +         expression = expression.fromFirstOccurrenceOf(":", false, false).trim();
-+      expression = expression.upToFirstOccurrenceOf("\n", false, false).trim();
-+      std::string name = expression.isEmpty() ? lane.label : expression.substring(0, 96).toStdString();
++      auto name = RustelSourceNavigation::SingleLine(expression.toStdString());
++      if (name.empty()) name = lane.label;
 +      mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
 +      if (open)
 +         for (const auto& part : lane.parts)
@@ -1355,7 +1378,7 @@ index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89f
 +         float x = float(b / 4 - cycle) * 5;
 +         line({ x, -0.1f, -0.5f }, { x, -0.1f, centerZ * 2 + 0.5f }, ofColor(35, 55, 80, int64_t(b) % 4 == 0 ? 150 : 65), int64_t(b) % 4 == 0 ? 1.2f : 0.6f);
 +      }
-+      struct PartLabel { Screen point; std::string name; ofColor color; };
++      struct PartLabel { Screen point; std::string name; ofColor color; bool fitWidth{ false }; };
 +      std::vector<PartLabel> labels;
 +      std::vector<Face> faces;
 +      faces.reserve(std::min<size_t>(mEvents.size() * 12, 12000));
@@ -1407,13 +1430,14 @@ index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89f
 +         float z = row * 1.7f;
 +         auto color = RowColor(row);
 +         const auto heading = project({ -8.7f, 0.25f, z });
-+         labels.push_back({ heading, mRows[row].label, color });
++         labels.push_back({ heading, mRows[row].label, color, true });
 +         if (!mRows[row].child && !mLanes[lane].parts.empty())
 +            mRowButtons.push_back({ ofRectangle(heading.x - 3, heading.y - 12, 24, 18), mLanes[lane].id });
 +         if (heading.y >= top && heading.y <= bottom)
 +         {
 +            const float inset = !mRows[row].child && !mLanes[lane].parts.empty() ? 24 : 0;
-+            mSourceButtons.push_back({ ofRectangle(heading.x + inset, heading.y - 12, std::max(12.0f, std::min(340.0f, float(mRows[row].label.size() * 6)) - inset), 18), mLanes[lane].id, mRows[row].part });
++            const float captionWidth = std::min(gFont.GetStringWidth(mRows[row].label, 10), std::max(1.0f, mWidth - heading.x - 12));
++            mSourceButtons.push_back({ ofRectangle(heading.x + inset, heading.y - 12, std::max(12.0f, captionWidth - inset), 18), mLanes[lane].id, mRows[row].part });
 +         }
 +         line({ -9, 0, z }, { 6, 0, z }, WithAlpha(color, 80), 1.4f);
 +         float pulse = 0;
@@ -1498,7 +1522,9 @@ index 0000000000000000000000000000000000000000..88df5e3f74735796a20e35ab05ace89f
 +      for (const auto& label : labels)
 +      {
 +         ofSetColor(label.color);
-+         DrawTextNormal(label.name, label.point.x, label.point.y, 10);
++         const float width = label.fitWidth ? gFont.GetStringWidth(label.name, 10) : 0;
++         const float fontSize = width > 0 ? 10 * std::min(1.0f, std::max(1.0f, mWidth - label.point.x - 12) / width) : 10;
++         DrawTextNormal(label.name, label.point.x, label.point.y, fontSize);
 +      }
 +      ofPopMatrix(); // Restore the parent's module clip before drawing footer.
 +      ofPopStyle();

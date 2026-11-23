@@ -188,8 +188,11 @@ impl MusicScene {
             }
             let heading_x=if child.is_some() {-4.0} else {-7.5};
             if let Some((p,_))=project(Vec3::new(heading_x,0.25,z)) {
-                let label_width=self.lanes.get(index).and_then(|l| l.heading.as_ref()).and_then(|(entity,_)|world.core.get_text(*entity))
-                    .and_then(|t|t.cached_mesh.as_ref()).map_or(30.0,|m|m.bounds.x/0.16*13.0).min(340.0);
+                let label_width=self.lanes.get(index).and_then(|l| l.heading.as_ref()).and_then(|(entity,_)| {
+                    let text=world.core.get_text(*entity)?.cached_mesh.as_ref()?;
+                    let scale=world.core.get_local_transform(*entity)?.scale.x;
+                    Some(text.bounds.x*scale*camera.projection_y*camera.height/(2.0*depth))
+                }).unwrap_or(30.0);
                 hit |= x>=p[0]-3.0 && x<=p[0]+label_width && y>=p[1]-16.0 && y<=p[1]+12.0;
             }
             // The pulse ring is selectable along its circumference as well.
@@ -514,7 +517,16 @@ impl MusicScene {
                     *text = label.to_owned();
                 }
                 let heading_x=visible.get(index).filter(|row|protocol::music_link_types::virtual_parent(&row.id).is_some()).map_or(-7.5, |_|-4.0);
-                label_pose(world, &label_camera, *entity, Vec3::new(heading_x, 0.25, z), index < count, 13.0);
+                let position=Vec3::new(heading_x,0.25,z);
+                let width=world.core.get_text(*entity).filter(|t|!t.dirty).and_then(|t|t.cached_mesh.as_ref()).map(|m|m.bounds.x)
+                    .unwrap_or(text.chars().count().max(1) as f32*0.09);
+                let pixels=label_camera.as_ref().and_then(|camera| {
+                    let clip=camera.clip*position.push(1.0);
+                    let viewport=world.resources.window.cached_viewport_size?.0 as f32;
+                    let x=(clip.x/clip.w+1.0)*viewport*0.5;
+                    (clip.w>0.0).then(||13.0_f32.min((viewport-x-24.0).max(1.0)*0.16/width.max(0.01)))
+                }).unwrap_or(13.0);
+                label_pose(world, &label_camera, *entity, position, index < count, pixels);
             }
             let child = visible.get(index).is_some_and(|row| protocol::music_link_types::virtual_parent(&row.id).is_some());
             let (rail_start, rail_end) = crate::music_text::rail_span(child);

@@ -325,7 +325,7 @@ pub fn MusicPanel(
                             children=move |(i, lane)| {
                             let palette = ["#1ff2d1", "#ff596b", "#a36bff", "#ffba33", "#33a6ff", "#ff59cc", "#9eff47", "#ff8a38"];
                             let source = if lane.source.is_empty() { "Source unavailable: restart Rustel with the updated bridge.".to_string() } else { lane.source.clone() };
-                            let preview = source.lines().next().unwrap_or("").to_string();
+                            let preview = if lane.source.is_empty() { source.clone() } else { lane.display_name() };
                             let expanded = RwSignal::new(false);
                             let lane_id = lane.id.clone();
                             let original_source = StoredValue::new(source.clone());

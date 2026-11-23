@@ -92,6 +92,10 @@ mod named_part_tests {
         let lane = |source: &str| Lane { source: source.into(), ..Default::default() };
         assert_eq!(lane("s(\"bd:1\")").display_name(), "s(\"bd:1\")");
         assert_eq!(lane("$: \n arrangement.slow(2);").display_name(), "arrangement.slow(2)");
+        assert_eq!(lane("$: stack(\r\n  bass,\n  lead\n)\n  .slow(2);").display_name(), "stack( bass, lead ) .slow(2)");
+        assert_eq!(lane("$: s(\"bd  hh\")\n .gain(0.4)").display_name(), "s(\"bd  hh\") .gain(0.4)");
+        let long = format!("$: stack({})", "bass, ".repeat(40));
+        assert_eq!(lane(&long).display_name(), long[3..].to_owned());
     }
 }
 
@@ -153,8 +157,9 @@ impl Lane {
         let source = self.source.trim();
         let body = source.split_once(':').filter(|(label, _)| !label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
             .map_or(source, |(_, body)| body.trim());
-        let first = body.lines().next().unwrap_or("").trim().trim_end_matches(';');
-        if first.is_empty() { self.label.clone() } else { first.chars().take(96).collect() }
+        let expression = body.lines().map(str::trim).filter(|line| !line.is_empty()).collect::<Vec<_>>().join(" ");
+        let expression = expression.trim_end_matches(';');
+        if expression.is_empty() { self.label.clone() } else { expression.to_owned() }
     }
 }
 

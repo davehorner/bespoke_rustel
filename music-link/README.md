@@ -92,6 +92,9 @@ their cent offsets. Glyphs fit the block footprint without a background plate;
 zoom in to read very short notes. Part names remain above the 3D blocks and on
 their virtual-lane headings. Wordfall uses the same note/hit notation.
 Bespoke's Stage also labels every block face with this note/hit notation.
+Lane-axis captions in both viewers join multiline expressions onto one line,
+preserving the full expression rather than stopping at `stack(` or truncating
+after 96 characters. Long captions shrink to fit the available width.
 Glyphs follow each projected face and its depth order as you rotate the stage,
 without mirrored text or hidden-side labels bleeding through. Short notes have
 smaller face labels; zoom in for readability. Part-name labels remain separate.

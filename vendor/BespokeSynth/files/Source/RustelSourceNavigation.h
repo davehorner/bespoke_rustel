@@ -5,6 +5,29 @@
 
 namespace RustelSourceNavigation
 {
+   inline std::string SingleLine(const std::string& source)
+   {
+      std::string result;
+      size_t begin = 0;
+      while (begin < source.size())
+      {
+         const auto newline = source.find_first_of("\r\n", begin);
+         size_t end = newline == std::string::npos ? source.size() : newline;
+         size_t first = begin;
+         while (first < end && (source[first] == ' ' || source[first] == '\t')) ++first;
+         while (end > first && (source[end-1] == ' ' || source[end-1] == '\t')) --end;
+         if (end > first)
+         {
+            if (!result.empty()) result += ' ';
+            result.append(source, first, end-first);
+         }
+         if (newline == std::string::npos) break;
+         begin = newline + 1;
+      }
+      while (!result.empty() && result.back() == ';') result.pop_back();
+      return result;
+   }
+
    inline size_t LineStart(const std::string& text, size_t offset)
    {
       offset = std::min(offset, text.size());

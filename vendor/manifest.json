@@ -45,11 +45,11 @@
         },
         {
           "path": "Source/RustelSourceNavigation.h",
-          "sha256": "5463b23e14796e65e30517125c3fff6cc261f8baaf42fccebb10641170d3e1c0"
+          "sha256": "1a27fe04f6d888f1ee34aa7839ec3846fb76a4f0315845b4eee273bf9aa2d804"
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "9406073438dc23479875a287fa0fc18c65e335f1017819a0b9f3eaf7300313fc"
+          "sha256": "55a444f6dc24b70fcb03011f2be64e9e47d2759cfe71348558be2e050234bf6d"
         },
         {
           "path": "Source/RustelView.h",
@@ -64,8 +64,8 @@
           "sha256": "c32c1c62cddbde08746f833a71ebadb3254b5227d514df0c808832be2c167009"
         }
       ],
-      "patch_sha256": "fc8496087c85edc0a2ddc114404c169b72d6eacbac84e80ea09893e845fa252c",
-      "result_tree": "d9b4053bf263e0bc5d0834a95595eb18b0b273b1"
+      "patch_sha256": "cbf6f4bdcc9618c4bf2c8668c40c6b4c42ee4e96acc4b3f91e38e9277d62d99a",
+      "result_tree": "887ee6caf096aae36d45841f4e0bfee169562087"
     },
     {
       "name": "rustel",
@@ -229,7 +229,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "b3a07279198f166136aa86f9c16f6bc70b4a8118628beff0597092681427eef9"
+          "sha256": "dd53a79c0e6275dd1c2bcbf46fcf799ffc65aa0b874dfa1733e16dd214b4581a"
         },
         {
           "path": "src/music_canvas.rs",
@@ -253,7 +253,7 @@
         },
         {
           "path": "worker/src/music.rs",
-          "sha256": "3bd04954654f757906eb8f0d92b0ad3058f66a51318a3c54266d4e03570217b5"
+          "sha256": "784d2d9f0c3f1fec72dd8ddb518edd8bb22a01bfa5bcb4eea40dde4184aeca72"
         },
         {
           "path": "worker/src/music_text.rs",
@@ -264,8 +264,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "e4c181d2721d7986b6453ddec09a5a7b2c9a1a66693b21976c372f68ca69d4e0",
-      "result_tree": "51fb62ec02d4879213d64d357a948b9f50f468f9"
+      "patch_sha256": "fd72740e1f78a535e0691b8275ae2827a3c7f49145b210b320b860344a538e8a",
+      "result_tree": "326e46787d56835620895ba5a2158e1db62c38a3"
     },
     {
       "name": "hearsay",
