@@ -1347,10 +1347,10 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..863fd65b5e93d7a6b89b37962ee9ce48106dbc14
+index 0000000000000000000000000000000000000000..929a30e021d3a878fa8f366e0ecf03e4789bc2db
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
-@@ -0,0 +1,441 @@
+@@ -0,0 +1,442 @@
 +//! Opt-in producer-side telemetry and pointwise transpose overlays.
 +//! No extra pattern queries and no socket work on the Session thread.
 +use super::*;
@@ -1517,6 +1517,7 @@ index 0000000000000000000000000000000000000000..863fd65b5e93d7a6b89b37962ee9ce48
 +                .top_level_declarations.into_iter().filter(|d| d.kind == "const")
 +                .map(|d| music_link::Binding {
 +                    color: music_link::named_color(&d.name), name: d.name, from: d.from, to: d.to,
++                    definition_from: d.definition_from, definition_to: d.definition_to,
 +                }).collect();
 +            state.snapshot.source = source;
 +        }
@@ -2118,7 +2119,7 @@ index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf
          // the browser asks, whatever the score's own visuals are doing. The
          // score's own taps follow the audible layout: the reset below records
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index d95e54846f2a0774f878351c3a52b33ae1f43b9e..a2cd054f8d429a4ce98aa4bf22858f1cc1ba6811 100644
+index d95e54846f2a0774f878351c3a52b33ae1f43b9e..3c83f74b6c2ceb35a9737c79140512b59198c34a 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
 @@ -980,6 +980,8 @@ pub struct TranspileOptions {
@@ -2138,7 +2139,55 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..a2cd054f8d429a4ce98aa4bf22858f1c
              block_offset: 0,
              registered_languages: Vec::new(),
              widget_methods: Vec::new(),
-@@ -2520,6 +2523,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -1597,6 +1600,9 @@ pub struct TopLevelDeclaration {
+     /// Byte range of the name in the source that was read.
+     pub from: usize,
+     pub to: usize,
++    /// Full declaration statement, including multiline initializers/chains.
++    pub definition_from: usize,
++    pub definition_to: usize,
+ }
+ 
+ /// What a setup file leaves behind for the scores that follow it, read from
+@@ -1653,12 +1659,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
+ 
+ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
+     let mut declarations = Vec::new();
+-    let mut push = |name: &str, kind: &'static str, span: oxc_span::Span| {
++    let mut push = |name: &str, kind: &'static str, span: oxc_span::Span, definition: oxc_span::Span| {
+         declarations.push(TopLevelDeclaration {
+             name: name.to_owned(),
+             kind,
+             from: span.start as usize,
+             to: span.end as usize,
++            definition_from: definition.start as usize,
++            definition_to: definition.end as usize,
+         });
+     };
+     for statement in &program.body {
+@@ -1677,18 +1685,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
+                     // A destructured binding is skipped: there is no single
+                     // name to offer, and the advice would be the same.
+                     if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+-                        push(identifier.name.as_str(), kind, identifier.span);
++                        push(identifier.name.as_str(), kind, identifier.span, declaration.span);
+                     }
+                 }
+             }
+             Statement::FunctionDeclaration(function) => {
+                 if let Some(identifier) = &function.id {
+-                    push(identifier.name.as_str(), "function", identifier.span);
++                    push(identifier.name.as_str(), "function", identifier.span, function.span);
+                 }
+             }
+             Statement::ClassDeclaration(class) => {
+                 if let Some(identifier) = &class.id {
+-                    push(identifier.name.as_str(), "class", identifier.span);
++                    push(identifier.name.as_str(), "class", identifier.span, class.span);
+                 }
+             }
+             _ => {}
+@@ -2520,6 +2528,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
      output
  }
  
@@ -2176,7 +2225,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..a2cd054f8d429a4ce98aa4bf22858f1c
  /// The body of `transpile`, always called on a parse stack.
  fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let regexes = RegexLiteralRanges::parse(source);
-@@ -2562,6 +2596,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -2562,6 +2601,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let (labels, lanes_by_place) =
          rewrite_labels(&kabel, regexes_are_present, &options.lane_numbers);
      let samples = rewrite_bare_samples(&labels);
@@ -2184,7 +2233,23 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..a2cd054f8d429a4ce98aa4bf22858f1c
      let mut parsed = parse_and_print_as(&samples, SourceType::mjs(), ModuleSyntax::of(options));
      // The parser read the rewritten text; the score is what the reader sees.
      for diagnostic in &mut parsed.diagnostics {
-@@ -6026,6 +6061,7 @@ mod tests {
+@@ -4706,6 +4746,15 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn setup_definitions_cover_whole_multiline_statements_without_trailing_comments() {
++        let source = "const bass = note(\"c3 // text\")\n  .gain(0.4)\n// next part\nconst tune = arrange(\n [8, stack(bass)]\n)\n$: tune";
++        let definitions = setup_definitions(source).top_level_declarations;
++        assert_eq!(definitions.len(), 2);
++        assert_eq!(&source[definitions[0].definition_from..definitions[0].definition_to], "const bass = note(\"c3 // text\")\n  .gain(0.4)");
++        assert_eq!(&source[definitions[1].definition_from..definitions[1].definition_to], "const tune = arrange(\n [8, stack(bass)]\n)");
++    }
++
+     #[test]
+     fn setup_definitions_list_top_level_declarations_with_their_spans() {
+         let source = "const a = 1, b = 2\nlet c\nvar d\nfunction e() {}\nclass F {}\nif (a) { const inner = 1 }\nconst [x] = [1]\n";
+@@ -6026,6 +6075,7 @@ mod tests {
          assert_eq!(transpile(r"fo\u{6f}`a b`", &options).output, "foo`a b`;");
          let located = TranspileOptions {
              emit_mini_locations: true,

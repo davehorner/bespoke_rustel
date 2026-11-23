@@ -36,6 +36,12 @@ mod named_part_tests {
     }
 
     #[test]
+    fn old_binding_messages_default_to_compatibility_definition_ranges() {
+        let binding: Binding = serde_json::from_str(r#"{"name":"bass","color":[1,2,3],"from":6,"to":10}"#).unwrap();
+        assert_eq!((binding.definition_from, binding.definition_to), (0,0));
+    }
+
+    #[test]
     fn virtual_source_target_keeps_parent_and_unicode_part_identity() {
         let id=virtual_id("#4","mélodie");
         assert_eq!(virtual_parent(&id),Some(("#4","mélodie")));
@@ -207,6 +213,10 @@ pub struct Binding {
     pub color: [u8; 3],
     pub from: usize,
     pub to: usize,
+    #[serde(default)]
+    pub definition_from: usize,
+    #[serde(default)]
+    pub definition_to: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

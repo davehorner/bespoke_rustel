@@ -796,10 +796,10 @@ index 0000000000000000000000000000000000000000..59b3baf0141acf7e115918a934461d82
 +};
 diff --git a/Source/RustelSourceNavigation.h b/Source/RustelSourceNavigation.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..33d2ba47adaa2cc646e793f354dfda2b29ffc1c7
+index 0000000000000000000000000000000000000000..0636913fa7ea5c1470470dd5407ce34a47d09050
 --- /dev/null
 +++ b/Source/RustelSourceNavigation.h
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,58 @@
 +#pragma once
 +#include <algorithm>
 +#include <cstddef>
@@ -807,6 +807,31 @@ index 0000000000000000000000000000000000000000..33d2ba47adaa2cc646e793f354dfda2b
 +
 +namespace RustelSourceNavigation
 +{
++   inline size_t LineStart(const std::string& text, size_t offset)
++   {
++      offset = std::min(offset, text.size());
++      if (offset == 0) return 0;
++      const auto newline = text.rfind('\n', offset - 1);
++      return newline == std::string::npos ? 0 : newline + 1;
++   }
++
++   // Compatibility for producers without parser statement spans: the caller
++   // bounds the declaration by the next known binding or playback statement.
++   inline size_t TrimTrailingTrivia(const std::string& text, size_t start, size_t end)
++   {
++      end = std::min(end, text.size());
++      while (end > start)
++      {
++         while (end > start && (text[end-1]==' ' || text[end-1]=='\r' || text[end-1]=='\n' || text[end-1]=='\t')) --end;
++         size_t line = LineStart(text, end);
++         size_t at = line;
++         while (at < end && (text[at]==' ' || text[at]=='\t')) ++at;
++         if (at + 1 < end && text[at]=='/' && text[at+1]=='/' && line >= start) end = line;
++         else break;
++      }
++      return end;
++   }
++
 +   // Match the native code panel's UTF-8 character wrapping, including the
 +   // newline immediately following an exactly full visual row.
 +   inline int VisualRow(const std::string& text, size_t offset, int columns)
@@ -835,10 +860,10 @@ index 0000000000000000000000000000000000000000..33d2ba47adaa2cc646e793f354dfda2b
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d496351d98af62
+index 0000000000000000000000000000000000000000..1c55d3a3a7995f2f30e6d6e5ccee0f97df9f4178
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,903 @@
+@@ -0,0 +1,976 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -946,7 +971,7 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +      mLive = false;
 +      mSourceScroll = 0;
 +      mSourceFocusFrom = mSourceFocusTo = -1;
-+      mSourceFocusName.clear();
++      mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
 +      mAudioSequence = 0;
 +      mAudioGeneration = -1;
 +      mAudioScope.clear();
@@ -1007,13 +1032,13 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +      return;
 +   mGeneration = generation;
 +   const auto document = session["source"].toString().toStdString();
-+   if (document != mDocument) { mSourceFocusFrom = mSourceFocusTo = -1; mSourceFocusName.clear(); }
++   if (document != mDocument) { mSourceFocusFrom = mSourceFocusTo = -1; mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear(); }
 +   mDocument = document;
 +   mBindings.clear();
 +   if (auto* bindings = session["bindings"].getArray())
 +      for (const auto& binding : *bindings)
 +         if (auto* rgb = binding["color"].getArray(); rgb && rgb->size() == 3)
-+            mBindings.push_back({ int(binding["from"]), int(binding["to"]), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), binding["name"].toString().toStdString() });
++            mBindings.push_back({ int(binding["from"]), int(binding["to"]), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), binding["name"].toString().toStdString(), int(binding["definition_from"]), int(binding["definition_to"]) });
 +   mCycle = cycle;
 +   mCps = cps;
 +   mReceived = juce::Time::getMillisecondCounterHiRes();
@@ -1096,6 +1121,8 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +{
 +   const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
 +   if (lane == mLanes.end() || mDocument.empty()) return;
++   mSelectedLane = laneId;
++   mSelectedPart = part;
 +   auto expression = juce::String(lane->source).trim();
 +   auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
 +   if (expression.contains(":") && prefix.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"))
@@ -1118,8 +1145,33 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +   }
 +   if (target)
 +   {
-+      mSourceFocusFrom = target->from;
-+      mSourceFocusTo = target->to;
++      if (target->definitionFrom >= 0 && target->definitionTo > target->definitionFrom && size_t(target->definitionTo) <= mDocument.size())
++      {
++         mSourceFocusFrom = target->definitionFrom;
++         mSourceFocusTo = target->definitionTo;
++      }
++      else
++      {
++         const size_t start = RustelSourceNavigation::LineStart(mDocument, size_t(target->from));
++         size_t end = mDocument.size();
++         for (const auto& binding : mBindings)
++         {
++            const auto next = RustelSourceNavigation::LineStart(mDocument, size_t(std::max(0, binding.from)));
++            if (next > start) end = std::min(end, next);
++         }
++         for (const auto& candidate : mLanes)
++         {
++            size_t next = 0;
++            for (int line = 1; line < candidate.line && next < mDocument.size(); ++line)
++            {
++               const auto newline = mDocument.find('\n', next);
++               next = newline == std::string::npos ? mDocument.size() : newline + 1;
++            }
++            if (next > start) end = std::min(end, next);
++         }
++         mSourceFocusFrom = int(start);
++         mSourceFocusTo = int(RustelSourceNavigation::TrimTrailingTrivia(mDocument, start, end));
++      }
 +      mSourceFocusName = target->name;
 +   }
 +   else
@@ -1130,9 +1182,25 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +         const auto newline = mDocument.find('\n', offset);
 +         offset = newline == std::string::npos ? mDocument.size() : newline + 1;
 +      }
-+      const auto end = mDocument.find('\n', offset);
++      size_t end = mDocument.size();
++      for (const auto& binding : mBindings)
++      {
++         const auto next = RustelSourceNavigation::LineStart(mDocument, size_t(std::max(0, binding.from)));
++         if (next > offset) end = std::min(end, next);
++      }
++      for (const auto& candidate : mLanes)
++      {
++         if (candidate.line <= lane->line) continue;
++         size_t next = 0;
++         for (int line = 1; line < candidate.line && next < mDocument.size(); ++line)
++         {
++            const auto newline = mDocument.find('\n', next);
++            next = newline == std::string::npos ? mDocument.size() : newline + 1;
++         }
++         end = std::min(end, next);
++      }
 +      mSourceFocusFrom = int(offset);
-+      mSourceFocusTo = int(end == std::string::npos ? mDocument.size() : end);
++      mSourceFocusTo = int(RustelSourceNavigation::TrimTrailingTrivia(mDocument, offset, end));
 +      mSourceFocusName = laneId;
 +   }
 +   const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
@@ -1140,6 +1208,18 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +   const int row = RustelSourceNavigation::VisualRow(mDocument, size_t(mSourceFocusFrom), columns);
 +   const float viewHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 8;
 +   mSourceScroll = std::max(0.0f, 36 + row * 16 - viewHeight * 0.4f);
++}
++
++int RustelView::SelectedRow() const
++{
++   int parent = -1;
++   for (int row = 0; row < int(mRows.size()); ++row)
++      if (mLanes[mRows[row].lane].id == mSelectedLane)
++      {
++         if (!mRows[row].child) parent = row;
++         else if (!mSelectedPart.empty() && mRows[row].part == mSelectedPart) return row;
++      }
++   return parent;
 +}
 +
 +int RustelView::EventRow(const Event& event) const
@@ -1254,6 +1334,16 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +      ofPushStyle();
 +      ofPushMatrix();
 +      ofClipWindow(2, top, mWidth - 4, fieldHeight, true);
++      const int selectedRow = SelectedRow();
++      if (selectedRow >= 0)
++      {
++         const float z = selectedRow * 1.7f;
++         const ofColor selection(255, 215, 90, 225);
++         const Point a{ -9, -0.08f, z - 0.55f }, b{ 6, -0.08f, z - 0.55f };
++         const Point c{ 6, -0.08f, z + 0.55f }, d{ -9, -0.08f, z + 0.55f };
++         line(a, b, selection, 1.8f); line(b, c, selection, 1.8f);
++         line(c, d, selection, 1.8f); line(d, a, selection, 1.8f);
++      }
 +      for (int beat = -8; beat <= 8; ++beat)
 +      {
 +         double b = std::floor(cycle * 4) + beat;
@@ -1611,7 +1701,7 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +   mCameraDragging = false;
 +   mSessionIds.clear();
 +   mSourceFocusFrom = mSourceFocusTo = -1;
-+   mSourceFocusName.clear();
++   mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear();
 +   mSourceButtons.clear();
 +   mRowButtons.clear();
 +   mViewMode = std::clamp(mViewMode, 0, 8);
@@ -1634,6 +1724,8 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +   const int columns = std::max(10, int((mWidth - 42) / charWidth));
 +   size_t begin = 0;
 +   int rows = 0;
++   bool selectionBox = false;
++   float boxLeft = mWidth, boxRight = 0, boxTop = y, boxBottom = y;
 +   while (begin < mDocument.size() && rows++ < 8192)
 +   {
 +      size_t end = begin;
@@ -1645,6 +1737,18 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +         ++characters;
 +      }
 +      auto row = mDocument.substr(begin, end - begin);
++      if (mSourceFocusFrom >= 0 && mSourceFocusTo > mSourceFocusFrom)
++      {
++         const size_t a = std::max(begin, size_t(mSourceFocusFrom));
++         const size_t b = std::min(end, size_t(mSourceFocusTo));
++         if (b > a)
++         {
++            const float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
++            const float right = x + gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
++            if (!selectionBox) { boxTop = y - 14; selectionBox = true; }
++            boxLeft = std::min(boxLeft, x - 3); boxRight = std::max(boxRight, right + 3); boxBottom = y + 5;
++         }
++      }
 +      if (live && y >= 82 && y <= mHeight)
 +         for (const auto& event : mEvents)
 +         {
@@ -1664,18 +1768,6 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +         }
 +      if (y >= 82 && y <= mHeight)
 +      {
-+         if (mSourceFocusFrom >= 0 && mSourceFocusTo > mSourceFocusFrom)
-+         {
-+            const size_t a = std::max(begin, size_t(mSourceFocusFrom));
-+            const size_t b = std::min(end, size_t(mSourceFocusTo));
-+            if (b > a)
-+            {
-+               const float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
-+               const float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
-+               ofFill(); ofSetColor(255, 215, 120, 75); ofRect(x, y - 12, width, 16);
-+               ofSetColor(255, 215, 120); ofLine(x, y + 3, x + width, y + 3);
-+            }
-+         }
 +         ofSetColor(210, 224, 240);
 +         gFontFixedWidth.DrawString(row, 11, 16, y);
 +         for (const auto& binding : mBindings)
@@ -1691,6 +1783,12 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +      y += 16;
 +      begin = end;
 +      if (begin < mDocument.size() && mDocument[begin] == '\n') ++begin;
++   }
++   if (selectionBox)
++   {
++      ofPushStyle(); ofNoFill(); ofSetColor(255, 215, 90); ofSetLineWidth(1.5f);
++      ofRect(boxLeft, boxTop, boxRight - boxLeft, boxBottom - boxTop, 2);
++      ofPopStyle();
 +   }
 +   return y + 16;
 +}
@@ -1744,10 +1842,10 @@ index 0000000000000000000000000000000000000000..e868c568e66e79354f686f5648d49635
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..bba4027cdec091ecb8b3f70a23504926359a3368
+index 0000000000000000000000000000000000000000..eb357e9ec7dab056b2a822e200f4bb2a159b52a8
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,114 @@
 +#pragma once
 +
 +#include "IDrawableModule.h"
@@ -1810,13 +1908,15 @@ index 0000000000000000000000000000000000000000..bba4027cdec091ecb8b3f70a23504926
 +   void RevealSource(const std::string& lane, const std::string& part);
 +   int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
 +   std::string mSourceFocusName;
++   std::string mSelectedLane, mSelectedPart;
++   int SelectedRow() const;
 +   int EventRow(const Event& event) const;
 +   ofColor RowColor(int row) const;
 +   void DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
 +   void DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
 +   float DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y);
 +   std::string mDocument;
-+   struct Binding { int from, to; ofColor color; std::string name; };
++   struct Binding { int from, to; ofColor color; std::string name; int definitionFrom{ 0 }, definitionTo{ 0 }; };
 +   std::vector<Binding> mBindings;
 +   void PollAudio();
 +   void DrawAudioView(float top, float bottom, double dt);

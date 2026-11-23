@@ -164,6 +164,7 @@ impl Session {
                 .top_level_declarations.into_iter().filter(|d| d.kind == "const")
                 .map(|d| music_link::Binding {
                     color: music_link::named_color(&d.name), name: d.name, from: d.from, to: d.to,
+                    definition_from: d.definition_from, definition_to: d.definition_to,
                 }).collect();
             state.snapshot.source = source;
         }

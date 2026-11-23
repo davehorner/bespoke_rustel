@@ -5,6 +5,31 @@
 
 namespace RustelSourceNavigation
 {
+   inline size_t LineStart(const std::string& text, size_t offset)
+   {
+      offset = std::min(offset, text.size());
+      if (offset == 0) return 0;
+      const auto newline = text.rfind('\n', offset - 1);
+      return newline == std::string::npos ? 0 : newline + 1;
+   }
+
+   // Compatibility for producers without parser statement spans: the caller
+   // bounds the declaration by the next known binding or playback statement.
+   inline size_t TrimTrailingTrivia(const std::string& text, size_t start, size_t end)
+   {
+      end = std::min(end, text.size());
+      while (end > start)
+      {
+         while (end > start && (text[end-1]==' ' || text[end-1]=='\r' || text[end-1]=='\n' || text[end-1]=='\t')) --end;
+         size_t line = LineStart(text, end);
+         size_t at = line;
+         while (at < end && (text[at]==' ' || text[at]=='\t')) ++at;
+         if (at + 1 < end && text[at]=='/' && text[at+1]=='/' && line >= start) end = line;
+         else break;
+      }
+      return end;
+   }
+
    // Match the native code panel's UTF-8 character wrapping, including the
    // newline immediately following an exactly full visual row.
    inline int VisualRow(const std::string& text, size_t offset, int columns)

@@ -97,6 +97,11 @@ without mirrored text or hidden-side labels bleeding through. Short notes have
 smaller face labels; zoom in for readability. Part-name labels remain separate.
 In Bespoke, clicking a numbered lane label or an expanded part-name label scrolls
 the existing evaluated-document pane to its definition and highlights the target.
+Selection uses an unfilled yellow box around the full expression, preserving
+source colors, plus a flat yellow floor outline under the selected stage row.
+Collapsed parts retain their selection on the parent row until expanded again.
+The bridge publishes parser-derived declaration ranges for multiline expressions;
+native viewers also handle older streams that only contain binding-name ranges.
 Stage headings and floating part labels support the same navigation. The small
 `[+]` / `[-]` region remains dedicated to expanding or collapsing parts.
 In Nightshade, core rails also carry flat text inscriptions. Virtual-part rails are shorter

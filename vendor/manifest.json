@@ -45,15 +45,15 @@
         },
         {
           "path": "Source/RustelSourceNavigation.h",
-          "sha256": "9ebd172470a5c37abbe2fc07ffeb0f9725dc6d21e93ccecaa6bdf09d93e94299"
+          "sha256": "5463b23e14796e65e30517125c3fff6cc261f8baaf42fccebb10641170d3e1c0"
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "3b143e79e5be1e7ca776601b18fcb9c0be4297486c099d7095dc104d5903dbc7"
+          "sha256": "7c122ba2011c2f51f710ecc2a97c7811bb5bcbb1373b609f63a4ddffd1e653f2"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "5a0fc22c7da97f4bb9c416abed243ac370fbb783aef657332d436e0ec05995b7"
+          "sha256": "50251c91c63253c11029c0e58f3b5b340de1481275c3facf8990537e6be05739"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -64,8 +64,8 @@
           "sha256": "c32c1c62cddbde08746f833a71ebadb3254b5227d514df0c808832be2c167009"
         }
       ],
-      "patch_sha256": "565b1857aff906e4f8036c9c280ab1a6192ef1edc52c81eaf85bf125f3f861b4",
-      "result_tree": "6bde6f2a3185ad2d899fd86bb7c8bf078025b368"
+      "patch_sha256": "7f4db39a754df04dea161643334f314c56658b1398dc41f7e92947c051739c13",
+      "result_tree": "0e09162bc5c16e9dd460b2da5d2ee1011e9986eb"
     },
     {
       "name": "rustel",
@@ -151,7 +151,7 @@
         },
         {
           "path": "crates/runtime/src/session/music.rs",
-          "sha256": "a661699626c3e2c76f47da3f792a247a5c606c08099d1cf3267e975a437001ff"
+          "sha256": "00e4f39484fe9f963445c951638e74c83bd54de3a970c7e71935f4352bbf4983"
         },
         {
           "path": "crates/runtime/src/session/scheduling.rs",
@@ -183,11 +183,11 @@
         },
         {
           "path": "crates/transpiler/src/lib.rs",
-          "sha256": "81d679f05f7f10fd4e9a5d3fd06c39fed8f9e628031fad36a5363b1cc9e3ca85"
+          "sha256": "2e15c74e250ec5d1bfab1f78c979b28d4170407b08844a1dd20c518c790225b4"
         }
       ],
-      "patch_sha256": "b650eb19bbb98556823a8fc3148a662f2bceb387e120a63109e48c095b4810bd",
-      "result_tree": "886cb35ab9e2bdf50cb1adbf3379450e1345e549"
+      "patch_sha256": "0f04b830e94e89e76cc68802f1ea3574063f21be1e65401ded537399b18d2a74",
+      "result_tree": "2fb281d79038e2cf8dd41c90350f2a9eae9a4def"
     },
     {
       "name": "nightshade-viewer",

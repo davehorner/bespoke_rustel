@@ -60,13 +60,15 @@ private:
    void RevealSource(const std::string& lane, const std::string& part);
    int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
    std::string mSourceFocusName;
+   std::string mSelectedLane, mSelectedPart;
+   int SelectedRow() const;
    int EventRow(const Event& event) const;
    ofColor RowColor(int row) const;
    void DrawEventView(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    void DrawControls(const std::vector<int>& visible, double cycle, bool live, float top, float bottom);
    float DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y);
    std::string mDocument;
-   struct Binding { int from, to; ofColor color; std::string name; };
+   struct Binding { int from, to; ofColor color; std::string name; int definitionFrom{ 0 }, definitionTo{ 0 }; };
    std::vector<Binding> mBindings;
    void PollAudio();
    void DrawAudioView(float top, float bottom, double dt);

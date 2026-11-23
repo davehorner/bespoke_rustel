@@ -1600,6 +1600,9 @@ pub struct TopLevelDeclaration {
     /// Byte range of the name in the source that was read.
     pub from: usize,
     pub to: usize,
+    /// Full declaration statement, including multiline initializers/chains.
+    pub definition_from: usize,
+    pub definition_to: usize,
 }
 
 /// What a setup file leaves behind for the scores that follow it, read from
@@ -1656,12 +1659,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
 
 fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
     let mut declarations = Vec::new();
-    let mut push = |name: &str, kind: &'static str, span: oxc_span::Span| {
+    let mut push = |name: &str, kind: &'static str, span: oxc_span::Span, definition: oxc_span::Span| {
         declarations.push(TopLevelDeclaration {
             name: name.to_owned(),
             kind,
             from: span.start as usize,
             to: span.end as usize,
+            definition_from: definition.start as usize,
+            definition_to: definition.end as usize,
         });
     };
     for statement in &program.body {
@@ -1680,18 +1685,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
                     // A destructured binding is skipped: there is no single
                     // name to offer, and the advice would be the same.
                     if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
-                        push(identifier.name.as_str(), kind, identifier.span);
+                        push(identifier.name.as_str(), kind, identifier.span, declaration.span);
                     }
                 }
             }
             Statement::FunctionDeclaration(function) => {
                 if let Some(identifier) = &function.id {
-                    push(identifier.name.as_str(), "function", identifier.span);
+                    push(identifier.name.as_str(), "function", identifier.span, function.span);
                 }
             }
             Statement::ClassDeclaration(class) => {
                 if let Some(identifier) = &class.id {
-                    push(identifier.name.as_str(), "class", identifier.span);
+                    push(identifier.name.as_str(), "class", identifier.span, class.span);
                 }
             }
             _ => {}
@@ -4739,6 +4744,15 @@ mod tests {
                 "an unrelated assignment was read as setup: {source}"
             );
         }
+    }
+
+    #[test]
+    fn setup_definitions_cover_whole_multiline_statements_without_trailing_comments() {
+        let source = "const bass = note(\"c3 // text\")\n  .gain(0.4)\n// next part\nconst tune = arrange(\n [8, stack(bass)]\n)\n$: tune";
+        let definitions = setup_definitions(source).top_level_declarations;
+        assert_eq!(definitions.len(), 2);
+        assert_eq!(&source[definitions[0].definition_from..definitions[0].definition_to], "const bass = note(\"c3 // text\")\n  .gain(0.4)");
+        assert_eq!(&source[definitions[1].definition_from..definitions[1].definition_to], "const tune = arrange(\n [8, stack(bass)]\n)");
     }
 
     #[test]
