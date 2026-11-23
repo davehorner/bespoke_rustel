@@ -12,6 +12,12 @@ pub fn face_text_scale(width: f32, depth: f32, text_width: f32, text_height: f32
     (width * 0.85 / text_width).min(depth * 0.75 / text_height)
 }
 
+/// Block glyphs fill more of each face than the secondary rail inscriptions.
+pub fn block_text_scale(width: f32, height: f32, text_width: f32, text_height: f32) -> f32 {
+    if ![width, height, text_width, text_height].iter().all(|v| v.is_finite() && *v > 0.0) { return 0.0; }
+    (width * 0.94 / text_width).min(height * 0.9 / text_height)
+}
+
 pub struct BlockFace {
     pub offset: [f32; 3],
     pub rotation: [f32; 3],

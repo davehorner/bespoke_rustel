@@ -345,15 +345,15 @@ fn draw_events(
                         c.set_global_alpha(if active { 1.0 } else { 0.55 });
                     }
                 }
-                let height = 14.0;
+                let height = 18.0;
                 c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
                 let glyph = event.face_label();
                 c.save();
                 c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
-                c.set_font("11px monospace");
+                c.set_font("bold 15px monospace");
                 let text_width = c.measure_text(&glyph).map(|m| m.width()).unwrap_or(1.0).max(1.0);
-                let size = (11.0 * (length-2.0).max(1.0) / text_width).min(11.0);
-                c.set_font(&format!("{size}px monospace"));
+                let size = (15.0 * (length-2.0).max(1.0) / text_width).min(15.0);
+                c.set_font(&format!("bold {size}px monospace"));
                 c.set_text_align("center");
                 label(c, &glyph, x_at(event.cycle) + length*0.5, y + size*0.35, "#080e1b");
                 c.restore();

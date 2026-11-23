@@ -1003,7 +1003,7 @@ index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb963
 +}
 diff --git a/src/music_canvas.rs b/src/music_canvas.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..70b5540d84949059bf7f22c75cea791a1054e90e
+index 0000000000000000000000000000000000000000..1b5a24904675afe1b65453d4ab4576da7ac016d1
 --- /dev/null
 +++ b/src/music_canvas.rs
 @@ -0,0 +1,659 @@
@@ -1354,15 +1354,15 @@ index 0000000000000000000000000000000000000000..70b5540d84949059bf7f22c75cea791a
 +                        c.set_global_alpha(if active { 1.0 } else { 0.55 });
 +                    }
 +                }
-+                let height = 14.0;
++                let height = 18.0;
 +                c.fill_rect(x_at(event.cycle), y - height * 0.5, length, height);
 +                let glyph = event.face_label();
 +                c.save();
 +                c.begin_path(); c.rect(x_at(event.cycle), y-height*0.5, length, height); c.clip();
-+                c.set_font("11px monospace");
++                c.set_font("bold 15px monospace");
 +                let text_width = c.measure_text(&glyph).map(|m| m.width()).unwrap_or(1.0).max(1.0);
-+                let size = (11.0 * (length-2.0).max(1.0) / text_width).min(11.0);
-+                c.set_font(&format!("{size}px monospace"));
++                let size = (15.0 * (length-2.0).max(1.0) / text_width).min(15.0);
++                c.set_font(&format!("bold {size}px monospace"));
 +                c.set_text_align("center");
 +                label(c, &glyph, x_at(event.cycle) + length*0.5, y + size*0.35, "#080e1b");
 +                c.restore();
@@ -2028,10 +2028,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..4a9ab0e6cb4d12ac2d77dd6870662ad9
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666f13fc1d9
+index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f23521dfe2
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,663 @@
+@@ -0,0 +1,666 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -2159,10 +2159,13 @@ index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666
 +    *previous = value.to_owned();
 +}
 +
-+fn surface_label(world: &mut World) -> Entity {
++fn surface_label(world: &mut World, bold: bool) -> Entity {
 +    spawn_3d_text_with_properties(world, "", Vec3::zeros(), TextProperties {
 +        font_size: 16.0, alignment: TextAlignment::Center,
 +        vertical_alignment: VerticalAlignment::Middle,
++        // Same-color MSDF outline thickens the glyph into a bold face.
++        outline_width: if bold { 0.055 } else { 0.0 },
++        outline_color: Vec4::new(0.015, 0.025, 0.045, 1.0),
 +        color: Vec4::new(0.015, 0.025, 0.045, 1.0), ..Default::default()
 +    })
 +}
@@ -2408,7 +2411,7 @@ index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666
 +                    edge
 +                })),
 +                heading: Some((heading, String::new())),
-+                inscription: Some((surface_label(world), String::new())),
++                inscription: Some((surface_label(world, false), String::new())),
 +                rail: Some(rail),
 +                lamp: Some(lamp),
 +                halo: Some(halo),
@@ -2480,7 +2483,7 @@ index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666
 +                                ..Default::default()
 +                            });
 +                            lane.labels.push((label, String::new()));
-+                            let faces = std::array::from_fn(|_| surface_label(world));
++                            let faces = std::array::from_fn(|_| surface_label(world, true));
 +                            lane.notes.push((faces, String::new()));
 +                        }
 +                        let entity = lane.blocks[used];
@@ -2539,7 +2542,7 @@ index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666
 +                                .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
 +                            let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
 +                            let facing=label_camera.as_ref().is_some_and(|camera| (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0);
-+                            let scale = if original || !facing { 0.0 } else { crate::music_text::face_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
++                            let scale = if original || !facing { 0.0 } else { crate::music_text::block_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
 +                            if let Some(t) = world.core.get_local_transform_mut(*note) { t.rotation = crate::systems::selection::euler_to_quat(face.rotation); }
 +                            pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5 + face.offset[0],
 +                                y + lift + face.offset[1], z + 0.15 + face.offset[2]), Vec3::repeat(scale));
@@ -2697,10 +2700,10 @@ index 0000000000000000000000000000000000000000..84031e9c21278d769d8c4207a30c8666
 +}
 diff --git a/worker/src/music_text.rs b/worker/src/music_text.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c7127186bdba61a26fe4dfb2dbeef78ea0818be
+index 0000000000000000000000000000000000000000..873e594dbce0d2d22d6211b9fd513123fedecdab
 --- /dev/null
 +++ b/worker/src/music_text.rs
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,109 @@
 +//! Nightshade's 16px text mesh is 0.16 world units tall before entity scaling.
 +pub fn world_scale_for_pixels(depth: f32, projection_y: f32, height: f32, pixels: f32) -> Option<f32> {
 +    if ![depth, projection_y, height, pixels].iter().all(|v| v.is_finite() && *v > 0.0) {
@@ -2713,6 +2716,12 @@ index 0000000000000000000000000000000000000000..7c7127186bdba61a26fe4dfb2dbeef78
 +pub fn face_text_scale(width: f32, depth: f32, text_width: f32, text_height: f32) -> f32 {
 +    if ![width, depth, text_width, text_height].iter().all(|v| v.is_finite() && *v > 0.0) { return 0.0; }
 +    (width * 0.85 / text_width).min(depth * 0.75 / text_height)
++}
++
++/// Block glyphs fill more of each face than the secondary rail inscriptions.
++pub fn block_text_scale(width: f32, height: f32, text_width: f32, text_height: f32) -> f32 {
++    if ![width, height, text_width, text_height].iter().all(|v| v.is_finite() && *v > 0.0) { return 0.0; }
++    (width * 0.94 / text_width).min(height * 0.9 / text_height)
 +}
 +
 +pub struct BlockFace {

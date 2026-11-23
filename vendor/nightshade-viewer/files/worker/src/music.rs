@@ -125,10 +125,13 @@ fn set_label(world: &mut World, entity: Entity, previous: &mut String, value: &s
     *previous = value.to_owned();
 }
 
-fn surface_label(world: &mut World) -> Entity {
+fn surface_label(world: &mut World, bold: bool) -> Entity {
     spawn_3d_text_with_properties(world, "", Vec3::zeros(), TextProperties {
         font_size: 16.0, alignment: TextAlignment::Center,
         vertical_alignment: VerticalAlignment::Middle,
+        // Same-color MSDF outline thickens the glyph into a bold face.
+        outline_width: if bold { 0.055 } else { 0.0 },
+        outline_color: Vec4::new(0.015, 0.025, 0.045, 1.0),
         color: Vec4::new(0.015, 0.025, 0.045, 1.0), ..Default::default()
     })
 }
@@ -374,7 +377,7 @@ impl MusicScene {
                     edge
                 })),
                 heading: Some((heading, String::new())),
-                inscription: Some((surface_label(world), String::new())),
+                inscription: Some((surface_label(world, false), String::new())),
                 rail: Some(rail),
                 lamp: Some(lamp),
                 halo: Some(halo),
@@ -446,7 +449,7 @@ impl MusicScene {
                                 ..Default::default()
                             });
                             lane.labels.push((label, String::new()));
-                            let faces = std::array::from_fn(|_| surface_label(world));
+                            let faces = std::array::from_fn(|_| surface_label(world, true));
                             lane.notes.push((faces, String::new()));
                         }
                         let entity = lane.blocks[used];
@@ -505,7 +508,7 @@ impl MusicScene {
                                 .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
                             let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
                             let facing=label_camera.as_ref().is_some_and(|camera| (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0);
-                            let scale = if original || !facing { 0.0 } else { crate::music_text::face_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
+                            let scale = if original || !facing { 0.0 } else { crate::music_text::block_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
                             if let Some(t) = world.core.get_local_transform_mut(*note) { t.rotation = crate::systems::selection::euler_to_quat(face.rotation); }
                             pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5 + face.offset[0],
                                 y + lift + face.offset[1], z + 0.15 + face.offset[2]), Vec3::repeat(scale));

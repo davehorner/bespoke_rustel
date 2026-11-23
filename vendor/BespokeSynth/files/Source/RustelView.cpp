@@ -549,9 +549,13 @@ void RustelView::DrawModule()
                if (f == 3) { face.center.y = p.y; face.right = { 1, 0, 0 }; face.down = { 0, 0, 1 }; height = size.z; }
                if (f == 4) { face.center.x = p.x; face.right = { 0, 0, -1 }; face.down = { 0, -1, 0 }; width = size.z; }
                if (f == 5) { face.center.x = p.x + size.x; face.right = { 0, 0, 1 }; face.down = { 0, -1, 0 }; width = size.z; }
-               face.textWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth(*note, 12));
-               face.textHeight = std::max(1.0f, gFontFixedWidth.GetStringHeight(*note, 12));
-               face.textScale = std::min(width * 0.8f / face.textWidth, height * 0.65f / face.textHeight);
+               // Match the per-character advances used by the perspective pass.
+               face.textWidth = 0;
+               for (char character : *note)
+                  face.textWidth += gFontBold.GetStringWidth(std::string(1, character), 12);
+               face.textWidth = std::max(1.0f, face.textWidth);
+               face.textHeight = std::max(1.0f, gFontBold.GetStringHeight(*note, 12));
+               face.textScale = std::min(width * 0.94f / face.textWidth, height * 0.9f / face.textHeight);
             }
             faces.push_back(face);
          }
@@ -645,10 +649,10 @@ void RustelView::DrawModule()
                ofPushMatrix();
                nvgTransform(gNanoVG, ux, uy, vx, vy, origin.x, origin.y);
                ofSetColor(5, 9, 18);
-               gFontFixedWidth.DrawString(glyph, 12, 0, 0);
+               gFontBold.DrawString(glyph, 12, 0, 0);
                ofPopMatrix();
             }
-            offset += gFontFixedWidth.GetStringWidth(glyph, 12);
+            offset += gFontBold.GetStringWidth(glyph, 12);
          }
       }
       line({ 0, 0, -0.6f }, { 0, 0, centerZ * 2 + 0.6f }, ofColor(190, 225, 255, 200), 2);
