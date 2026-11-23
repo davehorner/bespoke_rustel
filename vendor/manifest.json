@@ -45,15 +45,15 @@
         },
         {
           "path": "Source/RustelSourceNavigation.h",
-          "sha256": "1a27fe04f6d888f1ee34aa7839ec3846fb76a4f0315845b4eee273bf9aa2d804"
+          "sha256": "ed5bea6f61c8f4a1c71df47a6c423a44aedda65af53ee97cd9cfa392b35b34fc"
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "4a8458a66350292886466f7ca3c56c59d6ccc7b519df6d33beed7603fdfc09ba"
+          "sha256": "df42c67df37e669dd8713e19d1e02ea46555b3d9b7a61d2ab8c3b7df68b80063"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "0fcfce14271a90fcfaa85448b74ed36fc0bbd06addb37d7a47b39fb32d5355df"
+          "sha256": "b1bd4b6c7b193e9ed02b4fc1fec4aa3aae7cc5a8a020a694db77cd7ba0e3a94c"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -64,8 +64,8 @@
           "sha256": "607d2c33cbf2fefe146d123e746136cdac008333fdf56ef9f844e97eb04b9768"
         }
       ],
-      "patch_sha256": "fa4fd086623382f9014c99e86c446a2e624bf2a5aa51ac55880d1929fe1173f7",
-      "result_tree": "8e45f7b36fcb3ba66fc14d7b6e132ccfd19e9b97"
+      "patch_sha256": "72b6026bd07a773af1ead509f00aa2347239d191abfeec61cef714269b55eb5d",
+      "result_tree": "a720d68af3d56fc6031015aa9d4430e40125efac"
     },
     {
       "name": "rustel",
@@ -237,7 +237,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "ea7ec236f395aed309608433e5886873ca15558c835c45dd6a841a9eb6473690"
+          "sha256": "9a3b4cfd38e3a16d3f31dd53a273cb3b796ff6e9c8adaf047d315e56a880427e"
         },
         {
           "path": "src/music_canvas.rs",
@@ -249,7 +249,7 @@
         },
         {
           "path": "src/music_source.rs",
-          "sha256": "3cad63b7880a82102b1b39b42a7818ea4f56cf3012cb4f65c04190d5f11c5918"
+          "sha256": "e9ad0c5fb417aae3cd424ef00e86eda585e9fb9ca24d47819c25288d527e9610"
         },
         {
           "path": "src/state.rs",
@@ -272,8 +272,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "17f157ad06aafd4c90475324c80fde56985309058cf36abda9432632de5aed60",
-      "result_tree": "e20931a2e63c0986788cf541bc97a9eb3fc33fc2"
+      "patch_sha256": "a8829bd3bbf4d081128b5f2ae82c106890543b936c5750eff5701691c2d13994",
+      "result_tree": "6524ccd024a4e00c308159a64414bc1c2e881d52"
     },
     {
       "name": "hearsay",

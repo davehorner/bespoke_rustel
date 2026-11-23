@@ -82,6 +82,17 @@ pub fn reveal_source(state: ViewerState, lane: &str, part: &str) {
         Some(if snapshot.bindings.iter().any(|b|b.name==root) {root} else {String::new()})
     });
     let Some(target)=target else{return};
+    focus_source(state, lane, target);
+}
+
+pub fn select_lane_source(state: ViewerState, lane: &str) {
+    if state.music.with_untracked(|s| s.as_ref().is_some_and(|s| s.lanes.iter().any(|l| l.id == lane))) {
+        if !state.music_lane.get_untracked().is_empty() { state.music_lane.set(lane.to_owned()); }
+        focus_source(state, lane, String::new());
+    }
+}
+
+fn focus_source(state: ViewerState, lane: &str, target: String) {
     let follow=active_solo(state).is_some_and(|active| active!=lane);
     let next = state.music_source_focus.with_untracked(|focus| focus.as_ref().map_or(1, |f| f.2.wrapping_add(1)));
     state.music_source_focus.set(Some((lane.to_owned(), target, next)));

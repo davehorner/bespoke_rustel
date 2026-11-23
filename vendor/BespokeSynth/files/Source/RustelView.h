@@ -37,6 +37,7 @@ private:
       int transpose{ 0 };
       std::vector<NamedPart> parts;
       int line{ 1 };
+      std::pair<size_t, size_t> sourceRange{ 0, 0 };
    };
    struct Event
    {
@@ -56,9 +57,9 @@ private:
    std::vector<VisualRow> mRows;
    std::set<std::string> mExpanded;
    std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
-   struct SourceButton { ofRectangle bounds; std::string lane, part; };
+   struct SourceButton { ofRectangle bounds; std::string lane, part; bool expression{ false }; };
    std::vector<SourceButton> mSourceButtons;
-   void RevealSource(const std::string& lane, const std::string& part);
+   void RevealSource(const std::string& lane, const std::string& part, bool expression = false);
    int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
    std::string mSourceFocusName;
    std::string mSelectedLane, mSelectedPart;

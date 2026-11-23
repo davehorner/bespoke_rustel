@@ -796,17 +796,41 @@ index 0000000000000000000000000000000000000000..59b3baf0141acf7e115918a934461d82
 +};
 diff --git a/Source/RustelSourceNavigation.h b/Source/RustelSourceNavigation.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..a10f5a998cde9669b3a29211c2e3ced0655b6525
+index 0000000000000000000000000000000000000000..6fb27e1234173c7a990c80bb7c320c17d9c00bb3
 --- /dev/null
 +++ b/Source/RustelSourceNavigation.h
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,105 @@
 +#pragma once
 +#include <algorithm>
 +#include <cstddef>
 +#include <string>
++#include <utility>
 +
 +namespace RustelSourceNavigation
 +{
++   inline std::pair<size_t, size_t> StatementRange(const std::string& document, const std::string& source, int line)
++   {
++      size_t at = 0;
++      if (line < 1 || source.empty()) return { 0, 0 };
++      for (int row = 1; row < line; ++row)
++      {
++         const auto end = document.find('\n', at);
++         if (end == std::string::npos) return { 0, 0 };
++         at = end + 1;
++      }
++      size_t from = std::string::npos;
++      auto space = [](unsigned char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
++      for (unsigned char expected : source)
++      {
++         if (space(expected)) continue;
++         while (at < document.size() && space(static_cast<unsigned char>(document[at]))) ++at;
++         if (at >= document.size() || static_cast<unsigned char>(document[at]) != expected) return { 0, 0 };
++         if (from == std::string::npos) from = at;
++         ++at;
++      }
++      return from == std::string::npos ? std::make_pair(size_t(0), size_t(0)) : std::make_pair(from, at);
++   }
++
 +   inline std::string SingleLine(const std::string& source)
 +   {
 +      std::string result;
@@ -883,10 +907,10 @@ index 0000000000000000000000000000000000000000..a10f5a998cde9669b3a29211c2e3ced0
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa16428523dbc6ff
+index 0000000000000000000000000000000000000000..4b2a5dfb2ec071028b38d946567a3064edad20ef
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,1021 @@
+@@ -0,0 +1,1043 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -1071,6 +1095,7 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +            break;
 +         lanes.push_back({ lane["id"].toString().toStdString(), lane["label"].toString().toStdString(), lane["source"].toString().toStdString(), int(lane["transpose"]) });
 +         lanes.back().line = std::max(1, int(lane["line"]));
++         lanes.back().sourceRange = RustelSourceNavigation::StatementRange(mDocument, lanes.back().source, lanes.back().line);
 +         if (auto* parts = lane["parts"].getArray())
 +            for (const auto& part : *parts)
 +               if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
@@ -1152,12 +1177,17 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +   return "";
 +}
 +
-+void RustelView::RevealSource(const std::string& laneId, const std::string& part)
++void RustelView::RevealSource(const std::string& laneId, const std::string& part, bool laneExpression)
 +{
 +   const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
 +   if (lane == mLanes.end() || mDocument.empty()) return;
 +   mSelectedLane = laneId;
 +   mSelectedPart = part;
++   if (laneExpression && !mLaneId.empty() && mLaneId != laneId)
++   {
++      mLaneId = laneId;
++      mLaneIndex = int(lane - mLanes.begin());
++   }
 +   if (mSolo && mLive && mSoloLane != laneId) RustelLink::Solo(mSessionId, mGeneration, laneId, true);
 +   auto expression = juce::String(lane->source).trim();
 +   auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
@@ -1168,7 +1198,7 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +   {
 +      if (binding.name.empty() || binding.from < 0 || binding.to <= binding.from || size_t(binding.to) > mDocument.size()) continue;
 +      bool matches = binding.name == part;
-+      if (part.empty())
++      if (part.empty() && !laneExpression)
 +      {
 +         const auto name = juce::String(binding.name);
 +         if (expression.startsWith(name))
@@ -1238,6 +1268,12 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +      mSourceFocusFrom = int(offset);
 +      mSourceFocusTo = int(RustelSourceNavigation::TrimTrailingTrivia(mDocument, offset, end));
 +      mSourceFocusName = laneId;
++      const auto exact = lane->sourceRange;
++      if (exact.second > exact.first)
++      {
++         mSourceFocusFrom = int(exact.first);
++         mSourceFocusTo = int(exact.second);
++      }
 +   }
 +   const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
 +   const int columns = std::max(10, int((mWidth - 42) / charWidth));
@@ -1616,7 +1652,7 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +      for (auto button = mSourceButtons.rbegin(); button != mSourceButtons.rend(); ++button)
 +         if (button->bounds.contains(x, y))
 +         {
-+            RevealSource(button->lane, button->part);
++            RevealSource(button->lane, button->part, button->expression);
 +            return;
 +         }
 +   if (!InNoteField(x, y) || IsKeyHeld(' ') || (GetKeyModifiers() & kModifier_Alt))
@@ -1787,6 +1823,16 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +      const float hitTop = std::max(panelTop, y - 13);
 +      const float hitBottom = std::min(mHeight - 28, y + 3);
 +      if (hitBottom > hitTop)
++         for (const auto& lane : mLanes)
++         {
++            const auto range = lane.sourceRange;
++            const size_t a = std::max(begin, range.first), b = std::min(end, range.second);
++            if (b <= a) continue;
++            const float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
++            const float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
++            mSourceButtons.push_back({ ofRectangle(x, hitTop, std::max(5.0f, width), hitBottom - hitTop), lane.id, "", true });
++         }
++      if (hitBottom > hitTop)
 +         for (const auto& binding : mBindings)
 +         {
 +            const int from = binding.definitionTo > binding.definitionFrom ? binding.definitionFrom : binding.from;
@@ -1910,10 +1956,10 @@ index 0000000000000000000000000000000000000000..e6d124f10efb119c8c248087fa164285
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..736408e06e1779c9aa833e735a9d53c597d06130
+index 0000000000000000000000000000000000000000..f93f32b38ade83fb792defe89f07523dcba17752
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,120 @@
 +#pragma once
 +
 +#include "IDrawableModule.h"
@@ -1953,6 +1999,7 @@ index 0000000000000000000000000000000000000000..736408e06e1779c9aa833e735a9d53c5
 +      int transpose{ 0 };
 +      std::vector<NamedPart> parts;
 +      int line{ 1 };
++      std::pair<size_t, size_t> sourceRange{ 0, 0 };
 +   };
 +   struct Event
 +   {
@@ -1972,9 +2019,9 @@ index 0000000000000000000000000000000000000000..736408e06e1779c9aa833e735a9d53c5
 +   std::vector<VisualRow> mRows;
 +   std::set<std::string> mExpanded;
 +   std::vector<std::pair<ofRectangle, std::string>> mRowButtons;
-+   struct SourceButton { ofRectangle bounds; std::string lane, part; };
++   struct SourceButton { ofRectangle bounds; std::string lane, part; bool expression{ false }; };
 +   std::vector<SourceButton> mSourceButtons;
-+   void RevealSource(const std::string& lane, const std::string& part);
++   void RevealSource(const std::string& lane, const std::string& part, bool expression = false);
 +   int mSourceFocusFrom{ -1 }, mSourceFocusTo{ -1 };
 +   std::string mSourceFocusName;
 +   std::string mSelectedLane, mSelectedPart;

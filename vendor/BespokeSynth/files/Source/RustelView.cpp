@@ -182,6 +182,7 @@ void RustelView::Poll()
             break;
          lanes.push_back({ lane["id"].toString().toStdString(), lane["label"].toString().toStdString(), lane["source"].toString().toStdString(), int(lane["transpose"]) });
          lanes.back().line = std::max(1, int(lane["line"]));
+         lanes.back().sourceRange = RustelSourceNavigation::StatementRange(mDocument, lanes.back().source, lanes.back().line);
          if (auto* parts = lane["parts"].getArray())
             for (const auto& part : *parts)
                if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
@@ -263,12 +264,17 @@ std::string RustelView::SoloTarget() const
    return "";
 }
 
-void RustelView::RevealSource(const std::string& laneId, const std::string& part)
+void RustelView::RevealSource(const std::string& laneId, const std::string& part, bool laneExpression)
 {
    const auto lane = std::find_if(mLanes.begin(), mLanes.end(), [&](const Lane& l) { return l.id == laneId; });
    if (lane == mLanes.end() || mDocument.empty()) return;
    mSelectedLane = laneId;
    mSelectedPart = part;
+   if (laneExpression && !mLaneId.empty() && mLaneId != laneId)
+   {
+      mLaneId = laneId;
+      mLaneIndex = int(lane - mLanes.begin());
+   }
    if (mSolo && mLive && mSoloLane != laneId) RustelLink::Solo(mSessionId, mGeneration, laneId, true);
    auto expression = juce::String(lane->source).trim();
    auto prefix = expression.upToFirstOccurrenceOf(":", false, false);
@@ -279,7 +285,7 @@ void RustelView::RevealSource(const std::string& laneId, const std::string& part
    {
       if (binding.name.empty() || binding.from < 0 || binding.to <= binding.from || size_t(binding.to) > mDocument.size()) continue;
       bool matches = binding.name == part;
-      if (part.empty())
+      if (part.empty() && !laneExpression)
       {
          const auto name = juce::String(binding.name);
          if (expression.startsWith(name))
@@ -349,6 +355,12 @@ void RustelView::RevealSource(const std::string& laneId, const std::string& part
       mSourceFocusFrom = int(offset);
       mSourceFocusTo = int(RustelSourceNavigation::TrimTrailingTrivia(mDocument, offset, end));
       mSourceFocusName = laneId;
+      const auto exact = lane->sourceRange;
+      if (exact.second > exact.first)
+      {
+         mSourceFocusFrom = int(exact.first);
+         mSourceFocusTo = int(exact.second);
+      }
    }
    const float charWidth = std::max(1.0f, gFontFixedWidth.GetStringWidth("M", 11));
    const int columns = std::max(10, int((mWidth - 42) / charWidth));
@@ -727,7 +739,7 @@ void RustelView::OnClicked(float x, float y, bool right)
       for (auto button = mSourceButtons.rbegin(); button != mSourceButtons.rend(); ++button)
          if (button->bounds.contains(x, y))
          {
-            RevealSource(button->lane, button->part);
+            RevealSource(button->lane, button->part, button->expression);
             return;
          }
    if (!InNoteField(x, y) || IsKeyHeld(' ') || (GetKeyModifiers() & kModifier_Alt))
@@ -897,6 +909,16 @@ float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cyc
       const float panelTop = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 20;
       const float hitTop = std::max(panelTop, y - 13);
       const float hitBottom = std::min(mHeight - 28, y + 3);
+      if (hitBottom > hitTop)
+         for (const auto& lane : mLanes)
+         {
+            const auto range = lane.sourceRange;
+            const size_t a = std::max(begin, range.first), b = std::min(end, range.second);
+            if (b <= a) continue;
+            const float x = 16 + gFontFixedWidth.GetStringWidth(mDocument.substr(begin, a - begin), 11);
+            const float width = gFontFixedWidth.GetStringWidth(mDocument.substr(a, b - a), 11);
+            mSourceButtons.push_back({ ofRectangle(x, hitTop, std::max(5.0f, width), hitBottom - hitTop), lane.id, "", true });
+         }
       if (hitBottom > hitTop)
          for (const auto& binding : mBindings)
          {

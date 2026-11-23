@@ -64,14 +64,18 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
     let focus_lane = StoredValue::new(lane.clone());
     let focus_range = Memo::new(move |_| {
         let focus = state.music_source_focus.get()?;
-        if !focus_lane.with_value(|id| id == &focus.0) || focus.1.is_empty() { return None; }
-        state.music.with(|s| s.as_ref().and_then(|s| s.bindings.iter().find(|b| b.name == focus.1).map(|b| (b.from,b.to))))
+        if !focus_lane.with_value(|id| id == &focus.0) { return None; }
+        state.music.with(|s| {
+            let s = s.as_ref()?;
+            if focus.1.is_empty() { s.lanes.iter().find(|l| l.id == focus.0)?.source_range(&s.source) }
+            else { s.bindings.iter().find(|b| b.name == focus.1).map(|b| (b.from,b.to)) }
+        })
     });
     Effect::new(move |_| {
         let Some(focus) = state.music_source_focus.get() else { return; };
         if !focus_lane.with_value(|id| id == &focus.0) { return; }
         let Some(pre) = root.get() else { return; };
-        let offset = state.music.with_untracked(|s| s.as_ref().and_then(|s| s.bindings.iter().find(|b| b.name == focus.1).map(|b| b.from)));
+        let offset = focus_range.get_untracked().map(|range| range.0);
         if let Some(offset) = offset {
             if let Ok(Some(target)) = pre.query_selector(&format!("[data-source-offset='{offset}']")) {
                 let delta=target.get_bounding_client_rect().top()-pre.get_bounding_client_rect().top();
@@ -131,6 +135,11 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
                     let offset = offsets.with_untracked(|o| o.get(character).copied().flatten());
                     let target = state.music.with_untracked(|s| {
                         let s = s.as_ref()?;
+                        // Statement ownership wins over a referenced const:
+                        // clicking `$: bass` selects the lane, not `bass`'s part.
+                        if let Some(lane) = offset.and_then(|at| s.lanes.iter().find(|l| l.source_range(&s.source).is_some_and(|(a,b)| a <= at && at < b))) {
+                            return Some((lane.id.clone(), String::new(), true));
+                        }
                         let binding = s.bindings.iter().find(|b| {
                             ((class == "plain" || class == "function") && clicked_name.with_value(|name| name == &b.name))
                                 || offset.is_some_and(|at| b.definition_from <= at && at < b.definition_to)
@@ -139,11 +148,12 @@ pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize
                         let parent = s.lanes.iter().filter(|l| l.parts.iter().any(|p| p.name == binding.name))
                             .min_by_key(|l| l.id != preferred)
                             .or_else(|| s.lanes.iter().find(|l| l.id == preferred))?;
-                        Some((parent.id.clone(), binding.name.clone()))
+                        Some((parent.id.clone(), binding.name.clone(), false))
                     });
-                    if let Some((lane, part)) = target {
+                    if let Some((lane, part, expression)) = target {
                         event.stop_propagation();
-                        crate::music::reveal_source(state, &lane, &part);
+                        if expression { crate::music::select_lane_source(state, &lane); }
+                        else { crate::music::reveal_source(state, &lane, &part); }
                     }
                 } data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
                     let offset = offsets.with(|o| o.get(character).copied().flatten());

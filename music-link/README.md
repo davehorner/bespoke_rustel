@@ -388,6 +388,10 @@ running pattern and its source context, with no special cases for demo consts.
 Click a const definition in either source pane to select its part; the stage
 floor outline follows selection. Selecting a shared part retains the current
 parent lane when possible, and solo continues to address that parent lane.
+Click a `$:` statement (including its continuation lines) to select its parent
+lane rather than a referenced const. The source selection and stage floor follow
+that lane; an existing single-lane filter follows it too, while all-lanes stays
+in all-lanes mode.
 
 Enable **rests (~)** to show muted grey blocks between event gates in stage,
 piano roll and wordfall. This is off by default. These are inferred gaps for

@@ -2,9 +2,33 @@
 #include <algorithm>
 #include <cstddef>
 #include <string>
+#include <utility>
 
 namespace RustelSourceNavigation
 {
+   inline std::pair<size_t, size_t> StatementRange(const std::string& document, const std::string& source, int line)
+   {
+      size_t at = 0;
+      if (line < 1 || source.empty()) return { 0, 0 };
+      for (int row = 1; row < line; ++row)
+      {
+         const auto end = document.find('\n', at);
+         if (end == std::string::npos) return { 0, 0 };
+         at = end + 1;
+      }
+      size_t from = std::string::npos;
+      auto space = [](unsigned char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+      for (unsigned char expected : source)
+      {
+         if (space(expected)) continue;
+         while (at < document.size() && space(static_cast<unsigned char>(document[at]))) ++at;
+         if (at >= document.size() || static_cast<unsigned char>(document[at]) != expected) return { 0, 0 };
+         if (from == std::string::npos) from = at;
+         ++at;
+      }
+      return from == std::string::npos ? std::make_pair(size_t(0), size_t(0)) : std::make_pair(from, at);
+   }
+
    inline std::string SingleLine(const std::string& source)
    {
       std::string result;

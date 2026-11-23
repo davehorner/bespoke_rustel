@@ -154,6 +154,25 @@ pub struct NamedPart {
 }
 
 impl Lane {
+    /// Match the bridge's normalized statement to the original UTF-8 document.
+    /// Only whitespace may differ (indentation, label spacing and CRLF).
+    pub fn source_range(&self, document: &str) -> Option<(usize, usize)> {
+        if self.line == 0 || self.source.trim().is_empty() { return None; }
+        let start = document.split_inclusive('\n').take(self.line-1).map(str::len).sum::<usize>();
+        let written = document.get(start..)?;
+        let mut original = written.char_indices().peekable();
+        let mut from = None;
+        let mut to = start;
+        for expected in self.source.chars().filter(|c| !c.is_whitespace()) {
+            while original.peek().is_some_and(|(_, c)| c.is_whitespace()) { original.next(); }
+            let (at, actual) = original.next()?;
+            if actual != expected { return None; }
+            from.get_or_insert(start+at);
+            to = start+at+actual.len_utf8();
+        }
+        Some((from?, to))
+    }
+
     pub fn display_name(&self) -> String {
         let source = self.source.trim();
         let body = source.split_once(':').filter(|(label, _)| !label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
