@@ -234,6 +234,7 @@ void RustelView::Poll()
    const auto document = session["source"].toString().toStdString();
    if (document != mDocument) { mSourceFocusFrom = mSourceFocusTo = -1; mSourceFocusName.clear(); mSelectedLane.clear(); mSelectedPart.clear(); }
    mDocument = document;
+   mDefinitions = session["definitions"];
    mBindings.clear();
    if (auto* bindings = session["bindings"].getArray())
       for (const auto& binding : *bindings)
@@ -254,7 +255,7 @@ void RustelView::Poll()
          if (auto* parts = lane["parts"].getArray())
             for (const auto& part : *parts)
                if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
-                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), bool(part["helper"]) });
+                  if (!bool(part["helper"])) lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), false });
       }
    bool changed = lanes.size() != mLanes.size();
    if (!changed)
@@ -272,7 +273,7 @@ void RustelView::Poll()
          std::replace(label.begin(), label.end(), '\n', ' ');
          if (label.size() > 100)
             label = label.substr(0, 97) + "...";
-         mLanePicker->AddLabel(lanes[i].id + " " + label, i);
+         mLanePicker->AddLabel("line " + ofToString(lanes[i].line) + " / " + label, i);
          if (lanes[i].id == mLaneId)
             mLaneIndex = i;
       }
@@ -434,7 +435,7 @@ void RustelView::RevealSource(const std::string& laneId, const std::string& part
    const int columns = std::max(10, int((mWidth - 42) / charWidth));
    const int row = RustelSourceNavigation::VisualRow(mDocument, size_t(mSourceFocusFrom), columns);
    const float viewHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 8;
-   mSourceScroll = std::max(0.0f, 36 + row * 16 - viewHeight * 0.4f);
+   mSourceScroll = std::max(0.0f, mDefinitionHeight + 36 + row * 16 - viewHeight * 0.4f);
 }
 
 int RustelView::SelectedRow() const
@@ -531,7 +532,7 @@ void RustelView::DrawModule()
          expression = expression.fromFirstOccurrenceOf(":", false, false).trim();
       auto name = RustelSourceNavigation::SingleLine(expression.toStdString());
       if (name.empty()) name = lane.label;
-      mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
+      mRows.push_back({ index, "", std::string(lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + "line " + ofToString(lane.line) + " / " + name, false });
       if (open)
          for (const auto& part : lane.parts)
             if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name + (part.helper ? " (const)" : ""), true });
@@ -541,7 +542,7 @@ void RustelView::DrawModule()
    ofSetColor(live ? ofColor(80, 235, 200) : ofColor(150, 160, 175));
    DrawTextNormal((mViewMode >= 5 && mViewMode <= 7) ? "MASTER AUDIO ANALYSIS" : (live ? "LIVE PATTERN FIELD" : "WAITING FOR RUSTEL"), 12, 70);
    ofSetColor(155, 175, 200);
-   DrawTextNormal(ofToString(mRemoteBpm > 0 ? mRemoteBpm : mCps * 240, 0) + " bpm  /  " + ofToString(count) + " lanes  /  cycle " + ofToString(cycle, 2), mWidth - 330, 70);
+   DrawTextNormal(ofToString(mRemoteBpm > 0 ? mRemoteBpm : mCps * 240, 0) + " bpm / " + ofToString(visible.size()) + " lanes / " + ofToString(count - int(visible.size())) + " parts / cycle " + ofToString(cycle, 2), mWidth - 380, 70);
    const float sourceHeight = std::clamp(mHeight * 0.35f, 140.0f, 300.0f);
    const float top = 82, bottom = mHeight - sourceHeight - 50, fieldHeight = bottom - top;
    if (mViewMode == 0)
@@ -773,6 +774,9 @@ void RustelView::DrawModule()
    ofPushMatrix();
    ofClipWindow(8, sourceTop, mWidth - 16, sourceViewHeight, true);
    float cursor = sourceTop + 18 - mSourceScroll;
+   const float graphTop = cursor;
+   cursor = DrawDefinitions(cursor);
+   mDefinitionHeight = cursor - graphTop;
    if (!mDocument.empty())
       cursor = DrawSourceDocument(visible, cycle, live, cursor);
    else for (int lane : visible)
@@ -968,6 +972,77 @@ void RustelView::LoadState(FileStreamIn& in, int rev)
    mAudioScope.clear(); mAudioSpectrum.clear(); mAudioSides.clear();
 }
 
+
+float RustelView::DrawDefinitions(float y)
+{
+   auto* definitions = mDefinitions.getArray();
+   if (!definitions || definitions->isEmpty()) return y;
+   ofSetColor(155, 175, 200);
+   DrawTextNormal("Shared definitions / value histories and pitch activity", 16, y, 10);
+   y += 10;
+   int card = 0;
+   const int columns = std::max(1, int((mWidth - 32) / 240));
+   const float width = (mWidth - 32) / columns;
+   for (const auto& definition : *definitions)
+   {
+      const auto name = definition["name"].toString().toStdString();
+      const auto value = definition["value"];
+      const bool scalar = value.isDouble() || value.isInt() || value.isInt64();
+      bool emitting = false;
+      for (const auto& lane : mLanes)
+         for (const auto& part : lane.parts)
+            if (!part.helper && part.name == name) emitting = true;
+      if (!scalar && emitting) continue;
+      float x = 16 + (card % columns) * width, top = y + (card / columns) * 82;
+      ofColor color(150, 190, 220);
+      if (auto* rgb = definition["color"].getArray(); rgb && rgb->size() == 3) color = ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2]));
+      ofPushStyle();
+      ofNoFill(); ofSetColor(color, 100); ofRect(x, top, width - 6, 76);
+      ofSetColor(color);
+      DrawTextNormal(name + (scalar ? " = " + ofToString(double(value), 2) : " / pitch counts"), x + 5, top + 13, 10);
+      if (scalar)
+      {
+         if (auto* history = definition["history"].getArray(); history && !history->isEmpty())
+         {
+            double lo = double((*history)[0][1]), hi = lo;
+            for (const auto& p : *history) { lo = std::min(lo, double(p[1])); hi = std::max(hi, double(p[1])); }
+            double first = double((*history)[0][0]), last = double(history->getLast()[0]);
+            double span = std::max({hi - lo, std::abs(hi) * 0.1, 1.0});
+            double low = (hi + lo - span) * 0.5;
+            float px = 0, py = 0;
+            for (int i = 0; i < history->size(); ++i)
+            {
+               const auto& p = (*history)[i];
+               float gx = x + 6 + float((double(p[0]) - first) / std::max(0.25, last - first)) * (width - 24);
+               float gy = top + 55 - float((double(p[1]) - low) / span) * 30;
+               if (i) ofLine(px, py, gx, gy); else { ofFill(); ofCircle(gx, gy, 2); ofNoFill(); }
+               px = gx; py = gy;
+            }
+            DrawTextNormal("cycles " + ofToString(first, 1) + ".." + ofToString(last, 1) + " / " + ofToString(lo, 1) + ".." + ofToString(hi, 1), x + 5, top + 70, 9);
+         }
+      }
+      else if (auto* bins = definition["histogram"].getDynamicObject())
+      {
+         auto& properties = bins->getProperties();
+         float peak = 1;
+         for (int i = 0; i < properties.size(); ++i) peak = std::max(peak, float(int(properties.getValueAt(i))));
+         const float step = (width - 20) / std::max(1, properties.size());
+         for (int i = 0; i < properties.size(); ++i)
+         {
+            float h = 28 * int(properties.getValueAt(i)) / peak;
+            ofFill(); ofRect(x + 5 + i * step, top + 54 - h, std::max(1.0f, step - 2), h);
+            if (step >= 22) DrawTextNormal(properties.getName(i).toString().toStdString(), x + 5 + i * step, top + 66, 8);
+         }
+         if (!properties.size()) DrawTextNormal("No attributed events yet", x + 5, top + 44, 9);
+      }
+      ofPopStyle();
+      const float panelTop = mHeight - std::clamp(mHeight * 0.35f, 140.0f, 300.0f) - 20;
+      const float hitTop = std::max(panelTop, top), hitBottom = std::min(mHeight - 28, top + 76);
+      if (!mLanes.empty() && hitBottom > hitTop) mSourceButtons.push_back({ofRectangle(x, hitTop, width - 6, hitBottom - hitTop), mLanes.front().id, name});
+      ++card;
+   }
+   return y + ((card + columns - 1) / columns) * 82 + 10;
+}
 
 float RustelView::DrawSourceDocument(const std::vector<int>& visible, double cycle, bool live, float y)
 {

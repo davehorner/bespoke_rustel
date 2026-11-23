@@ -96,7 +96,7 @@ pub fn enabled() -> bool {
 }
 
 pub fn toggle_parts(state: ViewerState, lane: &str) {
-    if !state.music.with_untracked(|s| s.as_ref().is_some_and(|s| s.lanes.iter().any(|l| l.id == lane && !l.parts.is_empty()))) { return; }
+    if !state.music.with_untracked(|s| s.as_ref().is_some_and(|s| s.lanes.iter().any(|l| l.id == lane && l.parts.iter().any(|p|!p.helper)))) { return; }
     state.music_expanded.update(|ids| {
         if ids.iter().any(|id| id == lane) { ids.retain(|id| id != lane); }
         else { ids.push(lane.to_owned()); }
@@ -377,7 +377,7 @@ pub fn MusicPanel(
                         }>
                         <option value="">"All lanes"</option>
                         <For each=move || state.music.get().map(|s| s.lanes).unwrap_or_default() key=|lane| lane.id.clone()
-                            children=move |lane| view! { <option value=lane.id.clone()>{lane.id.clone()}</option> } />
+                            children=move |lane| view! { <option value=lane.id.clone()>{format!("line {} / {}",lane.line,lane.display_name())}</option> } />
                     </select>
                     <button on:click=move |_| { orbit.update(|v| *v = !*v); configure(); }>
                         {move || if orbit.get() { "ORBIT ON" } else { "ORBIT OFF" }}
@@ -425,7 +425,7 @@ pub fn MusicPanel(
                             let expand_id = StoredValue::new(lane.id.clone());
                             let checked_id = StoredValue::new(lane.id.clone());
                             let part_count_id = lane.id.clone();
-                            let part_count = Memo::new(move |_| state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.len())));
+                            let part_count = Memo::new(move |_| state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == part_count_id)).map_or(0, |l| l.parts.iter().filter(|p|!p.helper).count())));
                             let line = lane.line;
                             view! { <div class="music-lane" style:border-top=format!("2px solid {}", palette[i % 8])>
                                 <details node_ref=focus_details on:toggle=move |event| {
@@ -452,11 +452,12 @@ pub fn MusicPanel(
                                     <For each=move || vec![shown_source.get()] key=|(source,line)| (source.clone(),*line)
                                         children=move |(source,line)| view! { <crate::music_source::MusicSource state source lane=lane_id.clone() line color=palette[i % 8] expanded /> } />
                                 </details>
-                                <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("{}  /  LINE {}  /  {:+} ST", metadata_id, line, transpose) }}</div>
+                                <div class="music-lane-meta">{move || { let transpose = state.music.with(|s| s.as_ref().and_then(|s| s.lanes.iter().find(|l| l.id == metadata_id)).map(|l| l.transpose).unwrap_or(0)); format!("LINE {}  /  {:+} ST", line, transpose) }}</div>
                             </div> }
                             }
                         />
                     </div>
+                    <DefinitionGraphs state />
                     <div class="music-help">{move || if state.music_mode.get() == 0 { "DRAG TO ORBIT · SCROLL TO ZOOM" } else { "DRAG TO PAN · WHEEL TO ZOOM · DOUBLE CLICK TO RESET · AUDIO VIEWS USE THE MASTER TAP" }}</div>
                 </div>
                 <div class="music-clock">
@@ -466,5 +467,48 @@ pub fn MusicPanel(
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[component]
+fn DefinitionGraphs(state: ViewerState) -> impl IntoView {
+    view! {
+        <details style="pointer-events:auto;max-width:760px;background:#0a1220e9;border-radius:8px;padding:6px" open>
+            <summary style="font:11px monospace;cursor:pointer">"Shared definitions · value histories / pitch activity"</summary>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto">
+                <For each=move ||state.music.with(|s|s.as_ref().map(|s|s.shared_definitions().iter().map(|d|d.name.clone()).collect::<Vec<_>>()).unwrap_or_default())
+                    key=|name|name.clone() children=move |name| {
+                        let click_name=name.clone();
+                        view! {<button style="width:235px;padding:6px;text-align:left;background:transparent;border:1px solid #ffffff20;border-radius:5px;cursor:pointer"
+                            title="Select definition in the source. Numeric history uses cycles; pitch counts cover accepted events in the available window."
+                            on:click=move |_|state.music.with_untracked(|s| {if let Some(s)=s {if let Some(lane)=s.lanes.first(){reveal_source(state,&lane.id,&click_name);}}})>
+                            {move ||state.music.with(|s| {
+                                let Some(d)=s.as_ref().and_then(|s|s.definitions.iter().find(|d|d.name==name)) else{return ().into_any()};
+                                let color=format!("rgb({},{},{})",d.color[0],d.color[1],d.color[2]);
+                                let title=if let Some(v)=d.value {format!("{} = {}",d.name,v)} else {format!("{} · pitch / sound counts",d.name)};
+                                let history=!d.history.is_empty();
+                                let min=d.history.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+                                let max=d.history.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+                                let first=d.history.first().map_or(0.0,|p|p[0]);
+                                let last=d.history.last().map_or(first,|p|p[0]);
+                                let span=(max-min).max(max.abs()*0.1).max(1.0);
+                                let low=(min+max-span)*0.5;
+                                let points=d.history.iter().map(|p|format!("{},{}",4.0+212.0*(p[0]-first)/(last-first).max(0.25),38.0-30.0*(p[1]-low)/span)).collect::<Vec<_>>().join(" ");
+                                let peak=d.histogram.values().copied().max().unwrap_or(1).max(1) as f64;
+                                let width=216.0/d.histogram.len().max(1) as f64;
+                                let bars=d.histogram.iter().enumerate().map(|(i,(label,count))| {
+                                    let x=2.0+i as f64*width;let h=28.0*f64::from(*count)/peak;
+                                    view! {<g><title>{format!("{label}: {count}")}</title><rect x=x y=38.0-h width=(width-1.0).max(1.0) height=h fill=color.clone()/><text x=x y="49" fill="#aebed0" font-size="8">{if width>=22.0 {label.clone()}else{String::new()}}</text></g>}
+                                }).collect_view();
+                                let footer=if history {format!("cycles {first:.1}–{last:.1} · {:.2}…{:.2}",min,max)} else if d.histogram.is_empty(){"No independently attributed events yet".into()}else{"Accepted event window · counts".into()};
+                                view! {<div style=format!("color:{color};font:11px monospace")>{title}</div>
+                                    <svg viewBox="0 0 220 52" style="width:100%;height:52px"><path d="M2 38H218" stroke="#ffffff30"/>
+                                        {if history {view! {<polyline points=points fill="none" stroke=color stroke-width="2"/>}.into_any()}else{bars.into_any()}}
+                                    </svg><div style="font:9px monospace;color:#8fa3bb">{footer}</div>}.into_any()
+                            })}
+                        </button>}
+                    } />
+            </div>
+        </details>
     }
 }

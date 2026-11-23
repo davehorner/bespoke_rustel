@@ -323,8 +323,26 @@ pub struct Binding {
     pub definition_to: usize,
 }
 
+/// One session-wide definition, independent of lane expansion and numbering.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Definition {
+    pub name: String,
+    pub color: [u8; 3],
+    pub value: Option<f64>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    /// [cycle, value], bounded to 128 observations.
+    #[serde(default)]
+    pub history: Vec<[f64; 2]>,
+    /// Pitch (or sound for unpitched events) counts in the current event window.
+    #[serde(default)]
+    pub histogram: std::collections::BTreeMap<String, u32>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub definitions: Vec<Definition>,
     #[serde(default)]
     pub demos: Vec<String>,
     #[serde(default)]
@@ -360,6 +378,37 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Helpers are shared once; independently emitting parts stay under their parents.
+    pub fn shared_definitions(&self) -> Vec<&Definition> {
+        self.definitions.iter().filter(|d| d.value.is_some() || !self.lanes.iter().any(|l|l.parts.iter().any(|p|!p.helper && p.name==d.name))).collect()
+    }
+
+    pub fn update_definition_graphs(&mut self) {
+        let dependencies: std::collections::BTreeMap<_,_> = self.definitions.iter().map(|d|(d.name.clone(),d.dependencies.clone())).collect();
+        for definition in &mut self.definitions {
+            if definition.value.is_none() && self.lanes.iter().any(|l|l.parts.iter().any(|p|!p.helper && p.name==definition.name)) {continue;}
+            if let Some(value) = definition.value {
+                if definition.history.last().is_some_and(|p|p[0]>self.cycle) { definition.history.clear(); }
+                if definition.history.last().is_none_or(|p|p[1]!=value || self.cycle-p[0]>=0.25) {
+                    definition.history.push([self.cycle,value]);
+                    if definition.history.len()>128 {definition.history.remove(0);}
+                }
+            } else {
+                let mut users = std::collections::BTreeSet::from([definition.name.clone()]);
+                // Transitive reverse dependencies; cycles reach a fixed point.
+                for _ in 0..dependencies.len() {
+                    let before=users.len();
+                    for (name,refs) in &dependencies {if refs.iter().any(|r|users.contains(r)) {users.insert(name.clone());}}
+                    if users.len()==before {break;}
+                }
+                definition.histogram.clear();
+                for event in self.events.iter().filter(|e|!e.rest && users.contains(&e.part)) {
+                    let label=if event.pitch.is_some(){note_glyph(event.pitch)}else if event.sound.is_empty(){"x".into()}else{event.sound.clone()};
+                    if definition.histogram.len()<64 || definition.histogram.contains_key(&label) { *definition.histogram.entry(label).or_default()+=1; }
+                }
+            }
+        }
+    }
     pub fn display_cycle(&self, age: f64) -> f64 {
         if let Some(transport)=self.transport.as_ref().filter(|t|t.paused) {
             transport.view_cycle.unwrap_or(self.cycle)
@@ -415,11 +464,12 @@ impl Snapshot {
         let mut destinations = std::collections::BTreeMap::new();
         for lane in self.lanes.iter().filter(|l| selected.is_empty() || l.id == selected).take(64) {
             let mut core = lane.clone();
-            let open = expanded.contains(&lane.id) && !lane.parts.is_empty();
-            core.label = format!("{} {} / {}", if lane.parts.is_empty() { "·" } else if open { "−" } else { "+" }, lane.id, lane.display_name());
+            core.parts.retain(|p|!p.helper);
+            let open = expanded.contains(&lane.id) && !core.parts.is_empty();
+            core.label = format!("{} line {} / {}", if core.parts.is_empty() { "·" } else if open { "−" } else { "+" }, lane.line, lane.display_name());
             output.lanes.push(core);
             if open {
-                for part in lane.parts.iter().take(64) {
+                for part in lane.parts.iter().filter(|p|!p.helper).take(64) {
                     if output.lanes.len() >= 256 { break; }
                     let id = virtual_id(&lane.id, &part.name);
                     destinations.insert((lane.id.clone(), part.name.clone()), id.clone());

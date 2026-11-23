@@ -49,11 +49,11 @@
         },
         {
           "path": "Source/RustelView.cpp",
-          "sha256": "c503d89aa388350fab5270aa1ff171b7c4ec26813fa54f9d31ce7dce9ed3aa20"
+          "sha256": "87c967356b5d0e9ec6e31442b44bf32172de42bfb77756a9a890e360e7d1ea32"
         },
         {
           "path": "Source/RustelView.h",
-          "sha256": "a9d61d123a324387adacbeeb7126eaa1a0c74ba32171eea4cfe321cd28a8e7f1"
+          "sha256": "f26175c01e325f512ea03d6ce6781aac44025cfa6d6e52892c2749bed329127a"
         },
         {
           "path": "Source/RustelViewAudio.cpp",
@@ -64,8 +64,8 @@
           "sha256": "607d2c33cbf2fefe146d123e746136cdac008333fdf56ef9f844e97eb04b9768"
         }
       ],
-      "patch_sha256": "e941137095bf1e56dc3f5a9335dd65ddee4e302bea081031460e1cca34a3955d",
-      "result_tree": "03f37ed8625def7b72e9604838449646ffb6729c"
+      "patch_sha256": "32e3cc6a36bb082a47984d065c324e6991806ab0c17cbb202dd73bc8606dd8ea",
+      "result_tree": "32bc7948cb522f7e72ced1a277021c1712872bc2"
     },
     {
       "name": "rustel",
@@ -163,7 +163,7 @@
         },
         {
           "path": "crates/runtime/src/session/music.rs",
-          "sha256": "2939d22a56679586ced4007401350cbe60e06b844d1ca0623e51c217d8e87681"
+          "sha256": "7eddae46c35db47b347d33363e9a334fdda38492fec38eb829f60db098eb0a35"
         },
         {
           "path": "crates/runtime/src/session/scheduling.rs",
@@ -199,15 +199,19 @@
         },
         {
           "path": "crates/transpiler/src/lib.rs",
-          "sha256": "676f3d69dc40598c290885033f4196b8afadca5874324232e1c6a75f56e87174"
+          "sha256": "1fc925ad627f4acfdfe54d14aff26d520e998b2a07a7892fe2c666b5f152c6dd"
+        },
+        {
+          "path": "crates/transpiler/src/music_definitions.rs",
+          "sha256": "462e7058eaba8e702af962a6fc34b1e8389cbd31b89c74e5410d6f0b51c88bce"
         },
         {
           "path": "crates/transpiler/src/music_transport.rs",
           "sha256": "4fea8c3c5330b5e1adcdd3c7bffe1d4df131b0d9d389eea896b2cc8f34b95f06"
         }
       ],
-      "patch_sha256": "f8c53772193a2faf6dcb1bbe4c7165954970af59da678abacc555b0b918c44e1",
-      "result_tree": "b650e81d2d70edae758d5759a7deac85b185fe48"
+      "patch_sha256": "e8592b9bce9d6c96cae1ea3f135ee04eb5339a166a0c729de03d0cbb48611cc2",
+      "result_tree": "562a9345183a3855d30ea723ab366e7e8940769a"
     },
     {
       "name": "nightshade-viewer",
@@ -249,7 +253,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "0519c6766eff7bf84d1acbc44a89e87764b70f7cd9f768793a6e61564c93dc05"
+          "sha256": "f4d1f86987cd9f6d966895ff0d7e6d990c447af5ac75c7253a9ae44f55c28d4c"
         },
         {
           "path": "src/music_canvas.rs",
@@ -284,8 +288,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "f29ab1f1505782c96138d53738590d629196d321650b82a1f7c12a8adc6b1665",
-      "result_tree": "24d62db77cadb20621f752bff7d1ccca35fa0fce"
+      "patch_sha256": "638bd170347e8d41efcf3413213d1f318425aff535001b67a72fc61570697678",
+      "result_tree": "bdc706cfba64e873bf811f658e78ffffa8dbee9c"
     },
     {
       "name": "hearsay",

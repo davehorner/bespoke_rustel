@@ -1545,10 +1545,10 @@ index a2d76d04ea07a888a56b146ac7d855c7c326df48..2fde1a965bac359746e951adbcaf8e2f
              panic_poisoned: false,
 diff --git a/crates/runtime/src/session/music.rs b/crates/runtime/src/session/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544ecbdff2d
+index 0000000000000000000000000000000000000000..3667f850f8aa6e4ecdc838bc3a81eab0737de0b9
 --- /dev/null
 +++ b/crates/runtime/src/session/music.rs
-@@ -0,0 +1,670 @@
+@@ -0,0 +1,668 @@
 +//! Opt-in producer-side telemetry and pointwise transpose overlays.
 +//! No extra pattern queries and no socket work on the Session thread.
 +use super::*;
@@ -1778,6 +1778,10 @@ index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544
 +        let source = self.active_source().unwrap_or_default().to_owned();
 +        let state = &mut self.music;
 +        if state.snapshot.source != source {
++            let old = std::mem::take(&mut state.snapshot.definitions);
++            state.snapshot.definitions = rustel_transpiler::music_definitions::definitions(&source).into_iter().take(128).map(|d| {
++                music_link::Definition { color:music_link::named_color(&d.name), history:old.iter().find(|p|p.name==d.name).map(|p|p.history.clone()).unwrap_or_default(), name:d.name, value:d.value, dependencies:d.dependencies, ..Default::default() }
++            }).collect();
 +            state.time_signature=rustel_transpiler::music_transport::time_signature(&source);
 +            state.snapshot.events.clear();
 +            state.snapshot.rests.clear();
@@ -1805,14 +1809,6 @@ index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544
 +        state.snapshot.tempo=Some(music_link::TempoSettings {bpm:cps*240.0*f64::from(state.time_signature.0)/f64::from(state.time_signature.1),top:state.time_signature.0,bottom:state.time_signature.1});
 +        state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some(), view_cycle:state.inspection_cycle});
 +        state.snapshot.lanes = lanes;
-+        for lane in &mut state.snapshot.lanes {
-+            for binding in &state.snapshot.bindings {
-+                if lane.parts.len()<64 && !lane.parts.iter().any(|p|p.name==binding.name) {
-+                    lane.parts.push(music_link::NamedPart {name:binding.name.clone(),color:binding.color,helper:true});
-+                }
-+            }
-+            lane.parts.sort_by_key(|p|state.snapshot.bindings.iter().position(|b|b.name==p.name).unwrap_or(usize::MAX));
-+        }
 +        let exporting = cfg!(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))
 +            && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
 +        if exporting {
@@ -1930,6 +1926,7 @@ index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544
 +            state.snapshot.events.drain(..discard);
 +        }
 +        if state.last_publish.elapsed() >= Duration::from_millis(50) {
++            state.snapshot.update_definition_graphs();
 +            state.snapshot.rests = state.snapshot.inferred_rests();
 +            link.publish(state.snapshot.clone());
 +            state.last_publish = Instant::now();
@@ -2056,8 +2053,9 @@ index 0000000000000000000000000000000000000000..842c935a7b5a077953a169cbdde44544
 +            assert!((session.music.snapshot.cycle-phase).abs()<1e-7);
 +            assert!(session.music.snapshot.transport.as_ref().unwrap().paused);
 +            let parts=&session.music.snapshot.lanes[0].parts;
-+            assert!(parts.iter().any(|p|p.name=="bpm"&&p.helper));
-+            assert!(parts.iter().any(|p|p.name=="harmony"));
++            assert!(!parts.iter().any(|p|p.name=="bpm"));
++            assert!(session.music.snapshot.definitions.iter().any(|d|d.name=="bpm"&&d.value==Some(124.0)));
++            assert!(session.music.snapshot.definitions.iter().any(|d|d.name=="harmony"));
 +            session.music_transport_at(&Seek{cycle:8.0},2.0).unwrap();
 +            session.apply_pending_music_transport(3.0).unwrap();
 +            assert!((session.cycle_at_time(3.0)-8.0).abs()<1e-7);
@@ -2568,18 +2566,19 @@ index aaf938b92bb26296ff9c836858cd24067d36e99f..9065e0a11eb7fb4ae9855f311968b2bf
          // the browser asks, whatever the score's own visuals are doing. The
          // score's own taps follow the audible layout: the reset below records
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb448926f3b7 100644
+index d95e54846f2a0774f878351c3a52b33ae1f43b9e..792e982fc71faf345fc3ddcb67d5629825752f49 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
-@@ -32,6 +32,7 @@ use std::collections::HashSet;
+@@ -32,6 +32,8 @@ use std::collections::HashSet;
  use std::path::Path;
  
  mod arrange_marks;
 +pub mod music_transport;
++pub mod music_definitions;
  mod callback_ir;
  mod frequency_sliders;
  mod surface_writes;
-@@ -980,6 +981,8 @@ pub struct TranspileOptions {
+@@ -980,6 +982,8 @@ pub struct TranspileOptions {
      pub wrap_async: bool,
      pub add_return: bool,
      pub emit_mini_locations: bool,
@@ -2588,7 +2587,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
      pub block_offset: usize,
      pub registered_languages: Vec<String>,
      pub widget_methods: Vec<String>,
-@@ -1008,6 +1011,7 @@ impl Default for TranspileOptions {
+@@ -1008,6 +1012,7 @@ impl Default for TranspileOptions {
              wrap_async: false,
              add_return: true,
              emit_mini_locations: true,
@@ -2596,7 +2595,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
              block_offset: 0,
              registered_languages: Vec::new(),
              widget_methods: Vec::new(),
-@@ -1597,6 +1601,9 @@ pub struct TopLevelDeclaration {
+@@ -1597,6 +1602,9 @@ pub struct TopLevelDeclaration {
      /// Byte range of the name in the source that was read.
      pub from: usize,
      pub to: usize,
@@ -2606,7 +2605,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
  }
  
  /// What a setup file leaves behind for the scores that follow it, read from
-@@ -1653,12 +1660,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
+@@ -1653,12 +1661,14 @@ pub fn setup_definitions(source: &str) -> SetupDefinitions {
  
  fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
      let mut declarations = Vec::new();
@@ -2622,7 +2621,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
          });
      };
      for statement in &program.body {
-@@ -1677,18 +1686,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
+@@ -1677,18 +1687,18 @@ fn top_level_declarations(program: &Program<'_>) -> Vec<TopLevelDeclaration> {
                      // A destructured binding is skipped: there is no single
                      // name to offer, and the advice would be the same.
                      if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
@@ -2644,7 +2643,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
                  }
              }
              _ => {}
-@@ -2520,6 +2529,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -2520,6 +2530,37 @@ pub fn transpile(source: &str, options: &TranspileOptions) -> TranspileOutput {
      output
  }
  
@@ -2682,7 +2681,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
  /// The body of `transpile`, always called on a parse stack.
  fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let regexes = RegexLiteralRanges::parse(source);
-@@ -2562,6 +2602,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
+@@ -2562,6 +2603,7 @@ fn transpile_here(source: &str, options: &TranspileOptions) -> TranspileOutput {
      let (labels, lanes_by_place) =
          rewrite_labels(&kabel, regexes_are_present, &options.lane_numbers);
      let samples = rewrite_bare_samples(&labels);
@@ -2690,7 +2689,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
      let mut parsed = parse_and_print_as(&samples, SourceType::mjs(), ModuleSyntax::of(options));
      // The parser read the rewritten text; the score is what the reader sees.
      for diagnostic in &mut parsed.diagnostics {
-@@ -2876,7 +2917,7 @@ fn rewrite_mini_literals(
+@@ -2876,7 +2918,7 @@ fn rewrite_mini_literals(
                  && !ordinary_strings.contains(index)
                  && (quote == b'"' || (quote == b'`' && !tagged && !interpolated))
              {
@@ -2699,7 +2698,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
                      Ok(value) => value,
                      Err(error) => {
                          diagnostics.push(ParseDiagnostic {
-@@ -2890,9 +2931,14 @@ fn rewrite_mini_literals(
+@@ -2890,9 +2932,14 @@ fn rewrite_mini_literals(
                  };
                  if options.emit_mini_locations
                      && let Ok(mut spans) =
@@ -2716,7 +2715,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
                  }
                  output.push_str("m(");
                  output.push_str(&quote_single(&value));
-@@ -2906,6 +2952,17 @@ fn rewrite_mini_literals(
+@@ -2906,6 +2953,17 @@ fn rewrite_mini_literals(
                      // ranges later when a helper returns this pattern.
                      output.push_str("-1");
                  }
@@ -2734,7 +2733,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
                  restore_line_breaks(&mut output, raw);
                  output.push(')');
                  map.resume(end, output.len());
-@@ -3939,10 +3996,19 @@ struct JsStringDecodeError {
+@@ -3939,10 +3997,19 @@ struct JsStringDecodeError {
      offset: usize,
  }
  
@@ -2754,7 +2753,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
          if ch != '\\' {
              if matches!(ch, '\n' | '\r') {
                  // A raw line break is a syntax error inside '' or "", but a
-@@ -3965,9 +4031,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+@@ -3965,9 +4032,13 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                  } else {
                      output.push(ch);
                  }
@@ -2768,7 +2767,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
              continue;
          }
          match chars.next().map(|(_, ch)| ch) {
-@@ -4012,8 +4082,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
+@@ -4012,8 +4083,10 @@ fn decode_js_string(raw: &str, allow_line_breaks: bool) -> Result<String, JsStri
                  });
              }
          }
@@ -2780,7 +2779,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
  }
  
  /// Decode one `\u` escape, positioned just after the `u`.
-@@ -4706,6 +4778,15 @@ mod tests {
+@@ -4706,6 +4779,15 @@ mod tests {
          }
      }
  
@@ -2796,7 +2795,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
      #[test]
      fn setup_definitions_list_top_level_declarations_with_their_spans() {
          let source = "const a = 1, b = 2\nlet c\nvar d\nfunction e() {}\nclass F {}\nif (a) { const inner = 1 }\nconst [x] = [1]\n";
-@@ -6026,6 +6107,7 @@ mod tests {
+@@ -6026,6 +6108,7 @@ mod tests {
          assert_eq!(transpile(r"fo\u{6f}`a b`", &options).output, "foo`a b`;");
          let located = TranspileOptions {
              emit_mini_locations: true,
@@ -2804,7 +2803,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
              ..options
          };
          assert_eq!(
-@@ -6042,7 +6124,7 @@ mod tests {
+@@ -6042,7 +6125,7 @@ mod tests {
          };
          let result = transpile(r#"s(`bd \${snare}`)"#, &options);
          assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
@@ -2813,7 +2812,7 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
  
          let language = TranspileOptions {
              add_return: false,
-@@ -6242,10 +6324,10 @@ mod tests {
+@@ -6242,10 +6325,10 @@ mod tests {
              ("s(`bd\nsd`)", "s(m('bd\\nsd', 2\n))"),
              ("$: `bd\nsd`", "$: m('bd\\nsd', 3\n)"),
              ("mondo`bd\nsd`", "mondo('bd\\nsd', 6\n)"),
@@ -2827,6 +2826,111 @@ index d95e54846f2a0774f878351c3a52b33ae1f43b9e..38caca35483ab1662531a7b5f11dbb44
          ] {
              let rewrite = rewrite_mini_literals(
                  source,
+diff --git a/crates/transpiler/src/music_definitions.rs b/crates/transpiler/src/music_definitions.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..306886a565c0a119785795ad0458b34fb3f34e49
+--- /dev/null
++++ b/crates/transpiler/src/music_definitions.rs
+@@ -0,0 +1,99 @@
++//! Read-only metadata for shared definitions. Never execute score code to inspect it.
++use super::*;
++use oxc_ast::ast::IdentifierReference;
++
++#[derive(Clone, Debug)]
++pub struct Definition {
++    pub name: String,
++    pub value: Option<f64>,
++    pub dependencies: Vec<String>,
++}
++
++#[derive(Default)]
++struct References(Vec<String>);
++impl<'a> Visit<'a> for References {
++    fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
++        if !self.0.iter().any(|name| name == id.name.as_str()) {
++            self.0.push(id.name.to_string());
++        }
++    }
++}
++
++fn number(expression: &Expression<'_>, known: &[Definition]) -> Option<f64> {
++    let value = match expression {
++        Expression::NumericLiteral(n) => n.value,
++        Expression::Identifier(id) => known.iter().find(|d| d.name == id.name.as_str())?.value?,
++        Expression::ParenthesizedExpression(p) => return number(&p.expression, known),
++        Expression::UnaryExpression(u) => {
++            let value = number(&u.argument, known)?;
++            match u.operator.as_str() {
++                "+" => value,
++                "-" => -value,
++                _ => return None,
++            }
++        }
++        Expression::BinaryExpression(b) => {
++            let a = number(&b.left, known)?;
++            let b_value = number(&b.right, known)?;
++            match b.operator.as_str() {
++                "+" => a + b_value,
++                "-" => a - b_value,
++                "*" => a * b_value,
++                "/" => a / b_value,
++                _ => return None,
++            }
++        }
++        _ => return None,
++    };
++    value.is_finite().then_some(value)
++}
++
++pub fn definitions(source: &str) -> Vec<Definition> {
++    if check_nesting(source).is_err() {
++        return Vec::new();
++    }
++    on_parse_stack(|| {
++        let allocator = Allocator::default();
++        let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
++        if parsed.panicked || !parsed.diagnostics.is_empty() {
++            return Vec::new();
++        }
++        let mut result = Vec::new();
++        for statement in &parsed.program.body {
++            if let Statement::VariableDeclaration(decl) = statement {
++                if decl.kind != VariableDeclarationKind::Const {
++                    continue;
++                }
++                for binding in &decl.declarations {
++                    if let (BindingPattern::BindingIdentifier(id), Some(init)) =
++                        (&binding.id, &binding.init)
++                    {
++                        let mut references = References::default();
++                        references.visit_expression(init);
++                        result.push(Definition {
++                            name: id.name.to_string(),
++                            value: number(init, &result),
++                            dependencies: references.0,
++                        });
++                    }
++                }
++            }
++        }
++        result
++    })
++    .unwrap_or_default()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn scalar_expressions_and_dependencies_are_read_without_running_calls() {
++        let d = definitions(
++            "const bpm=120, half=bpm/2; const harmony=chord('Am').dict('ireal'); const rhythm=harmony.s('piano'); const unsafeValue=sideEffect()",
++        );
++        assert_eq!(d[1].value, Some(60.0));
++        assert!(d[3].dependencies.contains(&"harmony".to_owned()));
++        assert_eq!(d[4].value, None);
++    }
++}
 diff --git a/crates/transpiler/src/music_transport.rs b/crates/transpiler/src/music_transport.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..dd4c2aa6b55b99209101bf2d482fa0c9ec9da947

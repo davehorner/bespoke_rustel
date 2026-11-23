@@ -75,6 +75,9 @@ private:
    std::string mDocument;
    struct Binding { int from, to; ofColor color; std::string name; int definitionFrom{ 0 }, definitionTo{ 0 }; };
    std::vector<Binding> mBindings;
+   juce::var mDefinitions;
+   float mDefinitionHeight{0};
+   float DrawDefinitions(float y);
    void PollAudio();
    void PollSessionControls(const juce::var& session);
    void DrawAudioView(float top, float bottom, double dt);

@@ -227,6 +227,10 @@ impl Session {
         let source = self.active_source().unwrap_or_default().to_owned();
         let state = &mut self.music;
         if state.snapshot.source != source {
+            let old = std::mem::take(&mut state.snapshot.definitions);
+            state.snapshot.definitions = rustel_transpiler::music_definitions::definitions(&source).into_iter().take(128).map(|d| {
+                music_link::Definition { color:music_link::named_color(&d.name), history:old.iter().find(|p|p.name==d.name).map(|p|p.history.clone()).unwrap_or_default(), name:d.name, value:d.value, dependencies:d.dependencies, ..Default::default() }
+            }).collect();
             state.time_signature=rustel_transpiler::music_transport::time_signature(&source);
             state.snapshot.events.clear();
             state.snapshot.rests.clear();
@@ -254,14 +258,6 @@ impl Session {
         state.snapshot.tempo=Some(music_link::TempoSettings {bpm:cps*240.0*f64::from(state.time_signature.0)/f64::from(state.time_signature.1),top:state.time_signature.0,bottom:state.time_signature.1});
         state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some(), view_cycle:state.inspection_cycle});
         state.snapshot.lanes = lanes;
-        for lane in &mut state.snapshot.lanes {
-            for binding in &state.snapshot.bindings {
-                if lane.parts.len()<64 && !lane.parts.iter().any(|p|p.name==binding.name) {
-                    lane.parts.push(music_link::NamedPart {name:binding.name.clone(),color:binding.color,helper:true});
-                }
-            }
-            lane.parts.sort_by_key(|p|state.snapshot.bindings.iter().position(|b|b.name==p.name).unwrap_or(usize::MAX));
-        }
         let exporting = cfg!(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))
             && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
         if exporting {
@@ -379,6 +375,7 @@ impl Session {
             state.snapshot.events.drain(..discard);
         }
         if state.last_publish.elapsed() >= Duration::from_millis(50) {
+            state.snapshot.update_definition_graphs();
             state.snapshot.rests = state.snapshot.inferred_rests();
             link.publish(state.snapshot.clone());
             state.last_publish = Instant::now();
@@ -505,8 +502,9 @@ mod transport_tests {
             assert!((session.music.snapshot.cycle-phase).abs()<1e-7);
             assert!(session.music.snapshot.transport.as_ref().unwrap().paused);
             let parts=&session.music.snapshot.lanes[0].parts;
-            assert!(parts.iter().any(|p|p.name=="bpm"&&p.helper));
-            assert!(parts.iter().any(|p|p.name=="harmony"));
+            assert!(!parts.iter().any(|p|p.name=="bpm"));
+            assert!(session.music.snapshot.definitions.iter().any(|d|d.name=="bpm"&&d.value==Some(124.0)));
+            assert!(session.music.snapshot.definitions.iter().any(|d|d.name=="harmony"));
             session.music_transport_at(&Seek{cycle:8.0},2.0).unwrap();
             session.apply_pending_music_transport(3.0).unwrap();
             assert!((session.cycle_at_time(3.0)-8.0).abs()<1e-7);

@@ -22,6 +22,7 @@ try {
  const statement='$: stack(bass, pulse)';let source=lines.join('\n')+'\n'+statement;
  const bindings=names.map((name,i)=>{const start=lines.slice(0,i).reduce((n,l)=>n+l.length+1,0);return {name,from:start+6,to:start+6+name.length,definition_from:start,definition_to:start+lines[i].length,color:[100,200,240]};});
  const snapshot={version:1,session:'performance-fixture',generation:1,cycle:0,cps:0.5,source,bindings,transport:{paused:false},lanes:[{id:'#0',label:'$',source:statement,line:lines.length+1,transpose:0,parts:names.map(name=>({name,color:[100,200,240],helper:name==='bpm'||name==='harmony'}))}],events:[],rests:[]};
+ snapshot.definitions=[{name:'bpm',color:[255,180,90],value:124,history:[[0,124],[1,124]],dependencies:[],histogram:{}},{name:'harmony',color:[100,200,240],value:null,history:[],dependencies:[],histogram:{C4:3,E4:2,G4:4}}];
  const frame=(topic,payload)=>{const t=new TextEncoder().encode(topic),p=new TextEncoder().encode(JSON.stringify(payload)),b=new Uint8Array(8+t.length+p.length),v=new DataView(b.buffer);v.setUint32(0,b.length-4);b[4]=5;v.setUint16(6,t.length);b.set(t,8);b.set(p,8+t.length);return b.buffer;};
  window.WebSocket=class extends EventTarget {constructor(url,...args){super();if(!url.includes(':9613'))return new nativeWS(url,...args);this.readyState=1;setTimeout(()=>this.onopen?.(new Event('open')),0);const started=performance.now();this.timer=setInterval(()=>{
  snapshot.cycle=(performance.now()-started)/2000;
@@ -33,7 +34,10 @@ try {
  await send('Page.navigate',{url:process.env.VIEWER_URL||'http://127.0.0.1:18765/?music=1'});
  for(let i=0;i<60;i++){if(await evaluate('window.__frames?.length>1'))break;await sleep(500);}
  assert(await evaluate('window.__frames?.length>1'),`GPU did not initialize: ${JSON.stringify(errors)}`);
- await evaluate(`window.__workers[0].dispatchEvent(new MessageEvent('message',{data:{MusicRevealSource:{lane:'#0',part:'harmony'}}}))`);
+ const definitions=await evaluate(`(()=>{const cards=[...document.querySelectorAll('button')].filter(b=>b.title.startsWith('Select definition'));return cards.map(b=>({text:b.textContent,graphs:b.querySelectorAll('svg').length}));})()`);
+ assert.equal(definitions.length,2,'shared definitions were duplicated');assert(definitions.every(d=>d.graphs===1),'definition graphs missing');
+ assert(definitions.some(d=>d.text.includes('bpm = 124')));assert(definitions.some(d=>d.text.includes('harmony')));
+ await evaluate(`[...document.querySelectorAll('button')].find(b=>b.title.startsWith('Select definition')&&b.textContent.includes('harmony')).click()`);
  await sleep(1000);
  const selection=await evaluate(`(()=>{const p=document.querySelector('.music-source'),b=document.querySelector('[data-source-selection]');const n=[...p.querySelectorAll('span')].find(n=>n.textContent==='harmony');n.click();return {text:p.textContent.length,spans:p.querySelectorAll('span').length,border:getComputedStyle(b).borderTopWidth,fill:getComputedStyle(b).backgroundColor,nameFill:getComputedStyle(n).backgroundColor};})()`);
  assert.equal(selection.fill,'rgba(0, 0, 0, 0)');assert.equal(selection.nameFill,'rgba(0, 0, 0, 0)');

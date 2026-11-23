@@ -83,6 +83,12 @@ def main():
                 wait_for(lambda: "timeSignatureTop = 6" in files[0].read_text() and "const bpm = 135" in files[0].read_text())
                 snapshot = wait_for(lambda: (s := current(0)) and s["tempo"]["top"] == 6 and s)
                 assert abs(snapshot["cps"]-0.75) < 1e-7, snapshot["cps"]
+                definitions = snapshot["definitions"]
+                for name, value in [("bpm", 135), ("timeSignatureTop", 6), ("timeSignatureBottom", 8)]:
+                    matches = [d for d in definitions if d["name"] == name]
+                    assert len(matches) == 1 and matches[0]["value"] == value, (name, matches)
+                    assert matches[0]["history"], (name, "missing numeric history")
+                    assert all(p["name"] != name for lane in snapshot["lanes"] for p in lane["parts"]), name
                 generation = snapshot["generation"]
                 time.sleep(1)
                 assert current(0)["generation"] == generation, "persisting a control must not trigger a second watch reload"

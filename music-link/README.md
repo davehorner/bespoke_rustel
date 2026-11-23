@@ -443,10 +443,20 @@ lane rather than a referenced const. The source selection and stage floor follow
 that lane; an existing single-lane filter follows it too, while all-lanes stays
 in all-lanes mode.
 
-Expanded virtual lists also include source consts that do not emit independent
-events, such as shared harmony patterns and tempo numbers. They are marked
-`(const)`, retain their source colors and selection, and have no invented notes
-or audio outputs. Derived patterns keep their own emitting part names.
+Expanded virtual lists contain independently emitting musical parts. Shared
+definitions appear once per session alongside the source: `bpm`, meter settings,
+and other numeric constants have cycle-based value histories (up to 128 samples).
+Numeric literals and arithmetic over earlier numeric constants are read from the
+AST; inspecting a definition never calls user functions. Values that cannot be
+resolved this way are not presented as measured numbers.
+
+Shared patterns such as `harmony = chord(...).dict(...)` show pitch/sound
+histograms from accepted events attributed to their transitive dependent parts.
+These are counts in the available event window, not an audio spectrum or a
+preview of every dictionary entry. No attributed events produces an empty graph.
+Repeated snapshots do not accumulate duplicate counts. Clicking a graph reveals
+its definition. Musical lanes keep their routing IDs internally; captions use
+source lines so a later `#21` identity is not mistaken for the 22nd visible lane.
 
 Both viewers expose Play, Pause, Stop, and −4/+4 cycle transport jumps. Pause
 holds the cycle and prevents new audio onsets; Play resumes that position. Stop
