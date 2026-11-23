@@ -9,4 +9,5 @@ namespace RustelLink
    juce::var Analysis();
    std::string Status();
    void Solo(const std::string& session, int64_t generation, const std::string& lane, bool enabled);
+   void Transport(const std::string& session, int64_t generation, const std::string& action, double cycle = 0);
 }

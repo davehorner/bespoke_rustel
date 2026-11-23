@@ -30,7 +30,7 @@ public:
    int GetModuleSaveStateRev() const override { return 1; }
 
 private:
-   struct NamedPart { std::string name; ofColor color; };
+   struct NamedPart { std::string name; ofColor color; bool helper{false}; };
    struct Lane
    {
       std::string id, label, source;
@@ -104,6 +104,12 @@ private:
    bool mShowRests{ false };
    bool mShowParts{ false };
    ClickButton* mResetCamera{ nullptr };
+   ClickButton* mPlayButton{ nullptr };
+   ClickButton* mPauseButton{ nullptr };
+   ClickButton* mStopButton{ nullptr };
+   ClickButton* mBackButton{ nullptr };
+   ClickButton* mForwardButton{ nullptr };
+   bool mPaused{false}, mTransportAvailable{false};
    bool mCameraDragging{ false }, mPanDragging{ false };
    int mDragButton{ 1 };
    float mDragX{ 0 }, mDragY{ 0 }, mPanX{ 0 }, mPanY{ 0 };

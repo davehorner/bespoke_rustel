@@ -352,10 +352,10 @@ index 2f1d0b2b5a26d629bcf1218f3da14257368607eb..cebd03a2f552cd3278054e681ce863fc
  name = "tungstenite"
  version = "0.29.0"
 diff --git a/Cargo.toml b/Cargo.toml
-index 566968c7141d45d87572954a16f222631c0226ee..a9a6aab6aed078dbbb1ebea5f9dcccc6a2a685ae 100644
+index 566968c7141d45d87572954a16f222631c0226ee..b2dc3a2431def8b1aab8ac648e46dd5ca15155fd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -8,21 +8,28 @@ version = "0.1.0"
+@@ -8,25 +8,33 @@ version = "0.1.0"
  edition = "2024"
  
  [dependencies]
@@ -385,7 +385,12 @@ index 566968c7141d45d87572954a16f222631c0226ee..a9a6aab6aed078dbbb1ebea5f9dcccc6
      "HtmlInputElement",
      "OffscreenCanvas",
      "CssStyleDeclaration",
-@@ -54,7 +61,7 @@ web-sys = { version = "0.3", features = [
+     "DomRect",
++    "DomRectList",
+     "DomRectReadOnly",
+     "Worker",
+     "WorkerOptions",
+@@ -54,7 +62,7 @@ web-sys = { version = "0.3", features = [
  [features]
  # The external agent relay (page <-> MCP bridge websocket). Off by default so a
  # deployed build never opens a localhost socket; enable for agent development.
@@ -581,10 +586,10 @@ index 13af108014843c123c5637a8bcde754d930caf09..b3e646b175db501b57b208cce9f10ccc
  mod state;
 diff --git a/src/music.rs b/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb96353374ad7
+index 0000000000000000000000000000000000000000..059fb7ea8ed5fc3583841e2e5c82f93211536065
 --- /dev/null
 +++ b/src/music.rs
-@@ -0,0 +1,416 @@
+@@ -0,0 +1,448 @@
 +use crate::{
 +    bridge::{Bridge, send},
 +    state::ViewerState,
@@ -628,6 +633,25 @@ index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb963
 +        REQUESTS.with(|requests| { let mut requests=requests.borrow_mut(); if requests.len() >= 64 { requests.clear(); } requests.insert(request); });
 +        state.music_control_status.set("Applying solo…".into());
 +    } else { state.music_control_status.set("Solo command could not reach Rustel".into()); }
++}
++
++pub fn transport(state: ViewerState, action: music_link::TransportCommand) {
++    let Some(snapshot)=state.music.get_untracked().filter(|s|s.transport.is_some()) else{return};
++    let request=format!("transport-{}-{}",js_sys::Date::now(),js_sys::Math::random());
++    let command=serde_json::json!({"request":request,"session":snapshot.session,"generation":snapshot.generation,"lane":"","transport":action});
++    let sent=CONNECTION.with(|slot|slot.borrow().as_ref().is_some_and(|c|
++        hearsay::encode_publish_text(music_link::COMMAND_TOPIC,&command.to_string(),false).is_ok_and(|frame|c.socket.send_with_u8_array(&frame).is_ok())));
++    if sent {
++        REQUESTS.with(|r|{let mut r=r.borrow_mut();if r.len()>=64{r.clear();}r.insert(request);});
++        state.music_control_status.set("Applying transport…".into());
++    } else {state.music_control_status.set("Transport could not reach Rustel".into());}
++}
++
++fn skip_cycles(state: ViewerState, delta:f64) {
++    if let Some(s)=state.music.get_untracked() {
++        let age=(js_sys::Date::now()-state.music_received.get_untracked())/1000.0;
++        transport(state,music_link::TransportCommand::Seek {cycle:(s.display_cycle(age)+delta).clamp(0.0,1_000_000.0)});
++    }
 +}
 +fn solo_target(state: ViewerState) -> String {
 +    let selected=state.music_source_focus.with(|focus|focus.as_ref().map(|f|f.0.clone()).unwrap_or_default());
@@ -825,6 +849,7 @@ index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb963
 +    bridge: StoredValue<Option<Bridge>, LocalStorage>,
 +) -> impl IntoView {
 +    let orbit = RwSignal::new(false);
++    let transport_ready=move ||state.music.with(|s|s.as_ref().is_some_and(|s|s.transport.is_some()));
 +
 +    let configure = move || {
 +        bridge.with_value(|value| {
@@ -883,12 +908,24 @@ index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb963
 +                    <div class="music-help" role="status">{move || state.render_error.get()}</div>
 +                    <div class="music-help">{move || state.music_status.get()}</div>
 +                    <div class="music-help">{move || state.music_control_status.get()}</div>
++                    <div class="music-help">{move || {
++                        let status=state.music.with(|s|s.as_ref().and_then(|s|s.transport.as_ref()).map(|t|if t.paused {"PAUSED"} else {"PLAYING"}).unwrap_or("TRANSPORT UNAVAILABLE"));
++                        format!("{status} · {:.0} FPS",state.fps.get())
++                    }}</div>
 +                    <select class="music-select" prop:value=move || state.music_session.get()
 +                        on:change=move |event| { if let Some(lane)=active_solo(state) { solo(state,lane,false); } state.music_session.set(event_target_value(&event)); state.music_lane.set(String::new()); state.music_source_focus.set(None); state.music_audio.set(None); }>
 +                        {move || state.music_sessions.get().into_iter().map(|id| view! { <option value=id.clone()>{id.clone()}</option> }).collect_view()}
 +                    </select>
 +                </div>
 +                <div class="music-controls">
++                    <Show when=move ||!state.render_error.get().is_empty()>
++                        <button on:click=move |_| {if let Some(w)=web_sys::window(){let _=w.location().reload();}}>"Restart 3D"</button>
++                    </Show>
++                    <button disabled=move ||!transport_ready() title="Rewind four cycles" on:click=move |_|skip_cycles(state,-4.0)>"⏪ −4"</button>
++                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Play)>"▶ Play"</button>
++                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Pause)>"Ⅱ Pause"</button>
++                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Stop)>"■ Stop"</button>
++                    <button disabled=move ||!transport_ready() title="Forward four cycles" on:click=move |_|skip_cycles(state,4.0)>"+4 ⏩"</button>
 +                    <label style="font:11px monospace;padding:9px" title="Show gaps between event gates in each part; no inferred markers at the edges of the available stream.">
 +                        <input type="checkbox" prop:checked=move || state.music_rests.get()
 +                            on:change=move |e| state.music_rests.set(event_target_checked(&e)) />
@@ -1003,7 +1040,7 @@ index 0000000000000000000000000000000000000000..b5918cf9efddd70a696f5afd60fdb963
 +}
 diff --git a/src/music_canvas.rs b/src/music_canvas.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..1b5a24904675afe1b65453d4ab4576da7ac016d1
+index 0000000000000000000000000000000000000000..f1e023f4627b35ece4590cfef0d24e46c0545cdd
 --- /dev/null
 +++ b/src/music_canvas.rs
 @@ -0,0 +1,659 @@
@@ -1138,7 +1175,7 @@ index 0000000000000000000000000000000000000000..1b5a24904675afe1b65453d4ab4576da
 +            }
 +            let lane = state.music_lane.get_untracked();
 +            let snapshot = snapshot.with_rests(state.music_rests.get_untracked()).visual_lanes(&state.music_expanded.get_untracked(), &lane);
-+            let cycle = snapshot.cycle + age * snapshot.cps;
++            let cycle = snapshot.display_cycle(age);
 +            draw_events(
 +                &context,
 +                &snapshot,
@@ -1712,10 +1749,10 @@ index 0000000000000000000000000000000000000000..74324c16b5fd439f20c01ffd7c4b7a9b
 +}
 diff --git a/src/music_source.rs b/src/music_source.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..c014446d5826ddc779d2f810cf699d3b2a87e507
+index 0000000000000000000000000000000000000000..11af0b54d105e0e36b193d03845f88173f36280e
 --- /dev/null
 +++ b/src/music_source.rs
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,265 @@
 +//! Source offsets stay in UTF-8 bytes, as published by Rustel.
 +use crate::state::ViewerState;
 +use leptos::prelude::*;
@@ -1775,121 +1812,190 @@ index 0000000000000000000000000000000000000000..c014446d5826ddc779d2f810cf699d3b
 +    }).collect()
 +}
 +
++// Keep lexical words together: one reactive span per character made a full
++// arrangement fan out thousands of effects on every telemetry message.
++fn chunks(source: &str) -> Vec<(usize, usize, &'static str)> {
++    let mut result = Vec::new();
++    for (a,b,class) in tokens(source) {
++        if class != "string" { result.push((a,b,class)); continue; }
++        let mut start=a;
++        let mut category=None;
++        for (offset,c) in source[a..b].char_indices() {
++            let kind=if c.is_alphanumeric() || matches!(c,'_'|'#'|'.') {0} else if c.is_whitespace() {1} else {2};
++            if category.is_some_and(|old| old!=kind) { result.push((start,a+offset,class)); start=a+offset; }
++            category=Some(kind);
++        }
++        result.push((start,b,class));
++    }
++    result
++}
++
 +#[component]
 +pub fn MusicSource(state: ViewerState, source: String, lane: String, line: usize,
 +                   color: &'static str, expanded: RwSignal<bool>) -> impl IntoView {
-+    let root = NodeRef::<leptos::html::Pre>::new();
-+    let focus_lane = StoredValue::new(lane.clone());
-+    let focus_range = Memo::new(move |_| {
-+        let focus = state.music_source_focus.get()?;
-+        if !focus_lane.with_value(|id| id == &focus.0) { return None; }
++    let root=NodeRef::<leptos::html::Pre>::new();
++    let outline=NodeRef::<leptos::html::Div>::new();
++    let focus_lane=StoredValue::new(lane.clone());
++    let geometry=RwSignal::new(0_u64);
++    let focus_range=Memo::new(move |_| {
++        let focus=state.music_source_focus.get()?;
++        if !focus_lane.with_value(|id| id==&focus.0) { return None; }
 +        state.music.with(|s| {
-+            let s = s.as_ref()?;
-+            if focus.1.is_empty() { s.lanes.iter().find(|l| l.id == focus.0)?.source_range(&s.source) }
-+            else { s.bindings.iter().find(|b| b.name == focus.1).map(|b| (b.from,b.to)) }
++            let s=s.as_ref()?;
++            if focus.1.is_empty() { s.lanes.iter().find(|l|l.id==focus.0)?.source_range(&s.source) }
++            else { s.bindings.iter().find(|b|b.name==focus.1).map(|b| {
++                if b.definition_to>b.definition_from {(b.definition_from,b.definition_to)} else {(b.from,b.to)}
++            }) }
 +        })
++    });
++    let displayed=source.clone();
++    let offsets=Memo::new(move |_| state.music.with(|s| {
++        source_offsets(s.as_ref().map_or("",|s|s.source.as_str()),&displayed,line)
++    }));
++    let mut parts=Vec::new();
++    let mut nodes=Vec::new();
++    let mut character=0;
++    for (a,b,class) in chunks(&source) {
++        let first=character;
++        character+=source[a..b].chars().count();
++        let last=character;
++        let node=NodeRef::<leptos::html::Span>::new();
++        let name=source[a..b].to_owned();
++        let tint=state.music.with_untracked(|s|s.as_ref().and_then(|s|s.bindings.iter().find(|v|v.name==name))
++            .map(|v| {let [r,g,b]=v.color; format!("color:#{r:02x}{g:02x}{b:02x};")})).unwrap_or_default();
++        let text=source[a..b].to_owned();
++        let clicked=StoredValue::new(name);
++        nodes.push((node,first,last,tint.clone(),source[a..b].chars().last().map_or(1,char::len_utf8)));
++        parts.push(view! {
++            <span node_ref=node class=format!("music-token-{class}") style=tint on:click=move |event| {
++                let at=offsets.with_untracked(|o|o[first..last].iter().flatten().next().copied());
++                let target=state.music.with_untracked(|s| {
++                    let s=s.as_ref()?;
++                    if let Some(lane)=at.and_then(|at|s.lanes.iter().find(|l|l.source_range(&s.source).is_some_and(|(a,b)|a<=at&&at<b))) {
++                        return Some((lane.id.clone(),String::new(),true));
++                    }
++                    let binding=s.bindings.iter().find(|b| {
++                        ((class=="plain"||class=="function")&&clicked.with_value(|n|n==&b.name))
++                        ||at.is_some_and(|at|b.definition_from<=at&&at<b.definition_to)
++                    })?;
++                    let preferred=focus_lane.get_value();
++                    let parent=s.lanes.iter().filter(|l|l.parts.iter().any(|p|p.name==binding.name))
++                        .min_by_key(|l|l.id!=preferred).or_else(||s.lanes.iter().find(|l|l.id==preferred))?;
++                    Some((parent.id.clone(),binding.name.clone(),false))
++                });
++                if let Some((lane,part,expression))=target {
++                    event.stop_propagation();
++                    if expression {crate::music::select_lane_source(state,&lane);} else {crate::music::reveal_source(state,&lane,&part);}
++                }
++            }>{text}</span>
++        });
++    }
++    let nodes=std::rc::Rc::new(nodes);
++    let bounds=move |first:usize,last:usize,tail:usize|offsets.with_untracked(|o| {
++        let mut values=o[first..last].iter().flatten();
++        let from=*values.next()?;
++        let to=values.last().copied().unwrap_or(from)+tail;
++        Some((from,to))
++    });
++    // One paint pass per pane, with DOM writes only when the active state changes.
++    let now=RwSignal::new(js_sys::Date::now());
++    let paints=std::rc::Rc::new(std::cell::RefCell::new(vec![false;nodes.len()]));
++    let paint_nodes=nodes.clone();
++    Effect::new(move |_| {
++        let time=now.get();
++        if !expanded.get() {return;}
++        offsets.get();
++        let age=((time-state.music_received.get())/1000.0).max(0.0);
++        let ranges=state.music.with(|s| {
++            let Some(s)=s.as_ref().filter(|_|age<3.0) else{return Vec::new()};
++            let cycle=s.display_cycle(age);
++            s.events.iter().filter(|e|e.lane==lane&&e.cycle<=cycle&&cycle<e.cycle+e.duration)
++                .flat_map(|e|e.context.iter().copied()).collect::<Vec<_>>()
++        });
++        let mut old=paints.borrow_mut();
++        for (i,(node,first,last,tint,tail)) in paint_nodes.iter().enumerate() {
++            let active=bounds(*first,*last,*tail).is_some_and(|(a,b)|ranges.iter().any(|&(x,y)|a<y&&x<b));
++            if active==old[i] {continue;}
++            if let Some(node)=node.get() {
++                let style=if active {format!("{tint}background:{color}55;box-shadow:inset 0 -2px {color}")} else {tint.clone()};
++                let _=node.set_attribute("style",&style);
++                old[i]=active;
++            }
++        }
++    });
++    let scroll_nodes=nodes.clone();
++    Effect::new(move |_| {
++        let Some(focus)=state.music_source_focus.get() else{return};
++        if !focus_lane.with_value(|id|id==&focus.0) {return;}
++        let Some((from,to))=focus_range.get_untracked() else{return};
++        let Some(pre)=root.get() else{return};
++        for (node,first,last,_,tail) in scroll_nodes.iter() {
++            if bounds(*first,*last,*tail).is_some_and(|(a,b)|a<to&&from<b) {
++                if let Some(node)=node.get() {
++                    let delta=node.get_bounding_client_rect().top()-pre.get_bounding_client_rect().top();
++                    pre.set_scroll_top(pre.scroll_top()+delta as i32-pre.client_height()/2);
++                    geometry.update(|v|*v=v.wrapping_add(1));
++                }
++                break;
++            }
++        }
 +    });
 +    Effect::new(move |_| {
-+        let Some(focus) = state.music_source_focus.get() else { return; };
-+        if !focus_lane.with_value(|id| id == &focus.0) { return; }
-+        let Some(pre) = root.get() else { return; };
-+        let offset = focus_range.get_untracked().map(|range| range.0);
-+        if let Some(offset) = offset {
-+            if let Ok(Some(target)) = pre.query_selector(&format!("[data-source-offset='{offset}']")) {
-+                let delta=target.get_bounding_client_rect().top()-pre.get_bounding_client_rect().top();
-+                pre.set_scroll_top(pre.scroll_top() + delta as i32 - pre.client_height()/2);
++        geometry.get();
++        let range=focus_range.get();
++        let Some(border)=outline.get() else{return};
++        let Some(pre)=root.get() else{return};
++        let mut left=f64::INFINITY;let mut top=f64::INFINITY;
++        let mut right=f64::NEG_INFINITY;let mut bottom=f64::NEG_INFINITY;
++        if let Some((from,to))=range {
++            for (node,first,last,_,tail) in nodes.iter() {
++                if !bounds(*first,*last,*tail).is_some_and(|(a,b)|a<to&&from<b) {continue;}
++                if let Some(node)=node.get() {
++                    let rects=node.get_client_rects();
++                    for i in 0..rects.length() {if let Some(r)=rects.item(i) {
++                        left=left.min(r.left());top=top.min(r.top());right=right.max(r.right());bottom=bottom.max(r.bottom());
++                    }}
++                }
 +            }
-+        } else { pre.set_scroll_top(0); }
++        }
++        let style=if left.is_finite() {
++            let pre=pre.get_bounding_client_rect();
++            format!("position:absolute;pointer-events:none;border:1.5px solid #ffd75a;border-radius:2px;background:transparent;left:{}px;top:{}px;width:{}px;height:{}px",left-pre.left()-2.0,top-pre.top()-2.0,right-left+4.0,bottom-top+4.0)
++        } else {"display:none".into()};
++        let _=border.set_attribute("style",&style);
 +    });
-+    let now = RwSignal::new(js_sys::Date::now());
-+    let callback = Closure::<dyn FnMut()>::new(move || {
-+        if expanded.get_untracked() { now.set(js_sys::Date::now()); }
++    let size=std::rc::Rc::new(std::cell::Cell::new((0,0)));
++    let callback=Closure::<dyn FnMut()>::new(move || {
++        if expanded.get_untracked() {
++            now.set(js_sys::Date::now());
++            if let Some(pre)=root.get_untracked() {
++                let next=(pre.client_width(),pre.client_height());
++                if next!=size.replace(next) {geometry.update(|v|*v=v.wrapping_add(1));}
++            }
++        }
 +    });
-+    if let Some(window) = web_sys::window() {
-+        if let Ok(timer) = window.set_interval_with_callback_and_timeout_and_arguments_0(callback.as_ref().unchecked_ref(), 33) {
-+            let _callback = StoredValue::new_local(callback);
-+            on_cleanup(move || {
-+                if let Some(window) = web_sys::window() { window.clear_interval_with_handle(timer); }
-+            });
++    if let Some(window)=web_sys::window() {
++        if let Ok(timer)=window.set_interval_with_callback_and_timeout_and_arguments_0(callback.as_ref().unchecked_ref(),50) {
++            let _callback=StoredValue::new_local(callback);
++            on_cleanup(move ||{if let Some(w)=web_sys::window(){w.clear_interval_with_handle(timer);}});
 +        }
 +    }
-+    let displayed = source.clone();
-+    let offsets = Memo::new(move |_| {
-+        let document = state.music.with(|s| s.as_ref().map(|s| s.source.clone()).unwrap_or_default());
-+        source_offsets(&document, &displayed, line)
-+    });
-+    let active = Memo::new(move |_| {
-+        if !expanded.get() { return Vec::new(); }
-+        let time = now.get();
-+        let age = ((time - state.music_received.get()) / 1000.0).max(0.0);
-+        if age >= 3.0 { return Vec::new(); }
-+        state.music.with(|snapshot| {
-+            let Some(snapshot) = snapshot else { return Vec::new(); };
-+            let cycle = snapshot.cycle + age * snapshot.cps;
-+            snapshot.events.iter().filter(|e| e.lane == lane && cycle >= e.cycle && cycle < e.cycle + e.duration)
-+                .flat_map(|e| e.context.iter().copied()).collect::<Vec<_>>()
-+        })
-+    });
-+    // Mount text once. Playback updates only paint styles, never the text tree,
-+    // so expanded details, selection, wrapping and scroll anchoring stay stable.
-+    let mut parts = Vec::new();
-+    let mut index = 0;
-+    for (a, b, class) in tokens(&source) {
-+        let identifier = source[a..b].to_owned();
-+        let clicked_name = StoredValue::new(identifier.clone());
-+        let tint = Memo::new(move |_| {
-+            if class != "plain" && class != "function" { return String::new(); }
-+            state.music.with(|snapshot| snapshot.as_ref().and_then(|s|
-+                s.bindings.iter().find(|b| b.name == identifier).map(|b| {
-+                    let [r,g,b] = b.color;
-+                    format!("color:#{r:02x}{g:02x}{b:02x};")
-+                })).unwrap_or_default())
-+        });
-+        for c in source[a..b].chars() {
-+            let character = index;
-+            index += 1;
-+            parts.push(view! {
-+                <span class=format!("music-token-{class}") on:click=move |event| {
-+                    let offset = offsets.with_untracked(|o| o.get(character).copied().flatten());
-+                    let target = state.music.with_untracked(|s| {
-+                        let s = s.as_ref()?;
-+                        // Statement ownership wins over a referenced const:
-+                        // clicking `$: bass` selects the lane, not `bass`'s part.
-+                        if let Some(lane) = offset.and_then(|at| s.lanes.iter().find(|l| l.source_range(&s.source).is_some_and(|(a,b)| a <= at && at < b))) {
-+                            return Some((lane.id.clone(), String::new(), true));
-+                        }
-+                        let binding = s.bindings.iter().find(|b| {
-+                            ((class == "plain" || class == "function") && clicked_name.with_value(|name| name == &b.name))
-+                                || offset.is_some_and(|at| b.definition_from <= at && at < b.definition_to)
-+                        })?;
-+                        let preferred = focus_lane.get_value();
-+                        let parent = s.lanes.iter().filter(|l| l.parts.iter().any(|p| p.name == binding.name))
-+                            .min_by_key(|l| l.id != preferred)
-+                            .or_else(|| s.lanes.iter().find(|l| l.id == preferred))?;
-+                        Some((parent.id.clone(), binding.name.clone(), false))
-+                    });
-+                    if let Some((lane, part, expression)) = target {
-+                        event.stop_propagation();
-+                        if expression { crate::music::select_lane_source(state, &lane); }
-+                        else { crate::music::reveal_source(state, &lane, &part); }
-+                    }
-+                } data-source-offset=move || offsets.with(|o| o.get(character).copied().flatten().map(|n| n.to_string())) style=move || {
-+                    let offset = offsets.with(|o| o.get(character).copied().flatten());
-+                    if offset.is_some_and(|offset| focus_range.with(|range| range.is_some_and(|(a,b)| a <= offset && offset < b))) {
-+                        format!("{}background:#ffe08a55;outline:1px solid #ffe08a", tint.get())
-+                    } else if offset.is_some_and(|offset| active.with(|ranges| ranges.iter().any(|&(a,b)| a <= offset && offset < b))) {
-+                        format!("{}background:{color}55;box-shadow:inset 0 -2px {color}", tint.get())
-+                    } else { tint.get() }
-+                }>{c.to_string()}</span>
-+            });
-+        }
-+    }
-+    view! { <pre node_ref=root class="music-source" style="max-height:180px;overflow:auto">{parts.collect_view()}</pre> }
++    view! {<div style="position:relative;overflow:hidden;margin-top:12px">
++        <pre node_ref=root class="music-source" style="max-height:180px;overflow:auto;margin:0" on:scroll=move |_|geometry.update(|v|*v=v.wrapping_add(1))>{parts.collect_view()}</pre>
++        <div node_ref=outline data-source-selection aria-hidden="true" style="display:none"></div>
++    </div>}
 +}
 +
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++    #[test]
++    fn source_chunks_preserve_text_without_a_span_for_every_character() {
++        let source="const harmony = chord(\"<Am9 Fmaj7 Cmaj7 G6>\").dict(\"ireal\")\n".repeat(64);
++        let spans=chunks(&source);
++        assert_eq!(spans.iter().map(|&(a,b,_)|&source[a..b]).collect::<String>(),source);
++        assert!(spans.len()<source.chars().count()/2,"{} spans for {} bytes",spans.len(),source.len());
++    }
 +    #[test]
 +    fn maps_normalized_lane_to_its_original_line() {
 +        let document = "// é\n$:note(\"c3\")\n  $:  note(\"é4\")\n    .slow(2)";
@@ -2028,10 +2134,10 @@ index 053fdb7b2d271078799eb0539b9150720397f4a1..4a9ab0e6cb4d12ac2d77dd6870662ad9
              agent::flush_screenshots(&mut app.world);
 diff --git a/worker/src/music.rs b/worker/src/music.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f23521dfe2
+index 0000000000000000000000000000000000000000..3d8636f0e1fd13afd5d74c46ff97bdf931cebaa2
 --- /dev/null
 +++ b/worker/src/music.rs
-@@ -0,0 +1,666 @@
+@@ -0,0 +1,660 @@
 +use nightshade::ecs::material::components::Material;
 +use nightshade::prelude::*;
 +use protocol::music_link_types::Snapshot;
@@ -2050,8 +2156,7 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +#[derive(Default)]
 +struct LaneScene {
 +    blocks: Vec<Entity>,
-+    labels: Vec<(Entity, String)>,
-+    notes: Vec<([Entity; 6], String)>,
++    notes: Vec<([Entity; 3], String)>,
 +    colors: Vec<[f32; 3]>,
 +    rail: Option<Entity>,
 +    lamp: Option<Entity>,
@@ -2113,6 +2218,7 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +    };
 +    let scale = if hidden { Vec3::repeat(0.0001) } else { scale };
 +    if let Some(transform) = world.core.get_local_transform_mut(entity) {
++        if transform.translation == position && transform.scale == scale { return; }
 +        transform.translation = position;
 +        transform.scale = scale;
 +    }
@@ -2360,7 +2466,7 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +            return;
 +        };
 +        let age = ((js_sys::Date::now() - self.received) / 1000.0).max(0.0);
-+        let cycle = snapshot.cycle + age.min(3.0) * snapshot.cps;
++        let cycle = snapshot.display_cycle(age);
 +        let visible: Vec<_> = snapshot
 +            .lanes
 +            .iter()
@@ -2388,7 +2494,8 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +                }
 +            }
 +        }
-+        while self.lanes.len() < count {
++        let lane_allocation_limit = self.lanes.len() + 8;
++        while self.lanes.len() < count && self.lanes.len() < lane_allocation_limit {
 +            let i = self.lanes.len();
 +            let color = PALETTE[i % PALETTE.len()];
 +            let rail = spawn_cube_at(world, Vec3::zeros());
@@ -2419,6 +2526,11 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +            });
 +        }
 +        let mut total_used = 0;
++        let mut new_blocks = 0;
++        let mut events_by_lane = std::collections::HashMap::<&str, Vec<_>>::new();
++        for event in snapshot.events.iter().filter(|e|e.cycle+e.duration>cycle-1.5&&e.cycle<cycle+2.0) {
++            events_by_lane.entry(event.lane.as_str()).or_default().push(event);
++        }
 +        let mut total_allocated: usize = self.lanes.iter().map(|l| l.blocks.len()).sum();
 +        for (index, lane) in self.lanes.iter_mut().enumerate() {
 +            let z = index as f32 * 1.7;
@@ -2444,9 +2556,7 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +            let mut pulse = 0.0_f32;
 +            if index < count && age < 3.0 {
 +                let id = &visible[index].id;
-+                for event in snapshot.events.iter().filter(|e| {
-+                    &e.lane == id && e.cycle + e.duration > cycle - 1.5 && e.cycle < cycle + 2.0
-+                }) {
++                for &event in events_by_lane.get(id.as_str()).into_iter().flatten() {
 +                    let elapsed = ((cycle - event.cycle) / snapshot.cps.max(0.001)) as f32;
 +                    let hit = if elapsed >= 0.0 && !event.rest {
 +                        (-elapsed * 7.0).exp()
@@ -2458,13 +2568,14 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +                        if original && !self.ghosts {
 +                            continue;
 +                        }
-+                        if used >= 128 || total_used >= 1024 {
++                        if used >= 32 || total_used >= 192 {
 +                            break;
 +                        }
 +                        if lane.blocks.len() <= used {
-+                            if total_allocated >= 1024 {
++                            if total_allocated >= 192 || new_blocks >= 8 {
 +                                break;
 +                            }
++                            new_blocks += 1;
 +                            total_allocated += 1;
 +                            let entity = spawn_cube_at(world, Vec3::zeros());
 +                            // Fixed per-lane pools keep colors stable as events retire.
@@ -2477,12 +2588,6 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +                            );
 +                            lane.blocks.push(entity);
 +                            lane.colors.push(PALETTE[index % 8]);
-+                            let label = spawn_3d_billboard_text_with_properties(world, "", Vec3::zeros(), TextProperties {
-+                                font_size: 16.0, outline_width: 0.12,
-+                                alignment: TextAlignment::Center,
-+                                ..Default::default()
-+                            });
-+                            lane.labels.push((label, String::new()));
 +                            let faces = std::array::from_fn(|_| surface_label(world, true));
 +                            lane.notes.push((faces, String::new()));
 +                        }
@@ -2521,31 +2626,27 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +                                if original { 0.055 } else { 0.22 + hit * 0.15 },
 +                            ),
 +                        );
-+                        let (label, name) = &mut lane.labels[used];
-+                        let display = if original { String::new() } else { event.part.chars().take(64).collect::<String>() };
-+                        if *name != display {
-+                            if let Some(text) = world.core.get_text(*label) {
-+                                world.resources.text.cache.set_text(text.text_index, &display);
-+                            }
-+                            if let Some(text) = world.core.get_text_mut(*label) { text.dirty = true; }
-+                            *name = display;
-+                        }
-+                        label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
 +                        let (notes, previous) = &mut lane.notes[used];
 +                        let glyph = event.face_label();
 +                        let changed = *previous != glyph;
 +                        let faces = crate::music_text::block_faces([length, thickness, 0.22 + hit * 0.15]);
-+                        for (note, face) in notes.iter().zip(faces) {
-+                            if changed { let mut old = previous.clone(); set_label(world, *note, &mut old, &glyph); }
-+                            let bounds = world.core.get_text(*note).filter(|t| !t.dirty)
-+                                .and_then(|t| t.cached_mesh.as_ref()).map(|mesh| mesh.bounds)
-+                                .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
-+                            let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
-+                            let facing=label_camera.as_ref().is_some_and(|camera| (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0);
-+                            let scale = if original || !facing { 0.0 } else { crate::music_text::block_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
-+                            if let Some(t) = world.core.get_local_transform_mut(*note) { t.rotation = crate::systems::selection::euler_to_quat(face.rotation); }
-+                            pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5 + face.offset[0],
-+                                y + lift + face.offset[1], z + 0.15 + face.offset[2]), Vec3::repeat(scale));
++                        // A box has at most three camera-facing sides. Reuse three
++                        // meshes as the camera rotates instead of six per event.
++                        let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
++                        let mut facing=faces.into_iter().filter(|face| label_camera.as_ref().is_some_and(|camera|
++                            (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0));
++                        for note in notes.iter() {
++                            if changed {let mut old=previous.clone();set_label(world,*note,&mut old,&glyph);}
++                            let Some(face)=facing.next() else {pose(world,*note,Vec3::zeros(),Vec3::zeros());continue};
++                            let bounds=world.core.get_text(*note).filter(|t|!t.dirty)
++                                .and_then(|t|t.cached_mesh.as_ref()).map(|m|m.bounds)
++                                .unwrap_or_else(||Vec2::new(glyph.len() as f32*0.1,0.16));
++                            let scale=if original {0.0} else {crate::music_text::block_text_scale(face.size[0],face.size[1],bounds.x,bounds.y)};
++                            let rotation=crate::systems::selection::euler_to_quat(face.rotation);
++                            if let Some(t)=world.core.get_local_transform_mut(*note) {
++                                if t.rotation!=rotation {t.rotation=rotation;mark_local_transform_dirty(world,*note);}
++                            }
++                            pose(world,*note,center+Vec3::from_column_slice(&face.offset),Vec3::repeat(scale));
 +                        }
 +                        *previous = glyph;
 +                        used += 1;
@@ -2556,7 +2657,6 @@ index 0000000000000000000000000000000000000000..88f65241947bb84aad9ea29d164ee3f2
 +            for entity in &lane.blocks[used..] {
 +                pose(world, *entity, Vec3::zeros(), Vec3::zeros());
 +            }
-+            for (entity, _) in &lane.labels[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
 +            for (entities, _) in &lane.notes[used..] { for entity in entities { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); } }
 +            if let Some((entity, text)) = &mut lane.heading {
 +                let label = visible.get(index).map_or("", |l| l.label.as_str());

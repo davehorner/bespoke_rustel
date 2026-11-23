@@ -393,6 +393,19 @@ lane rather than a referenced const. The source selection and stage floor follow
 that lane; an existing single-lane filter follows it too, while all-lanes stays
 in all-lanes mode.
 
+Expanded virtual lists also include source consts that do not emit independent
+events, such as shared harmony patterns and tempo numbers. They are marked
+`(const)`, retain their source colors and selection, and have no invented notes
+or audio outputs. Derived patterns keep their own emitting part names.
+
+Both viewers expose Play, Pause, Stop, and −4/+4 cycle transport jumps. Pause
+holds the cycle and prevents new audio onsets; Play resumes that position. Stop
+holds cycle zero. Jumps move the pattern clock rather than playing audio in
+reverse. Already sounding effect tails can ring out. Commands use the current
+session/generation and safely replace the device's queued future through the
+live producer. An older publisher without transport support disables these
+controls. Restart Rustel and the hub after updating to enable them.
+
 Enable **rests (~)** to show muted grey blocks between event gates in stage,
 piano roll and wordfall. This is off by default. These are inferred gaps for
 each lane/part, not authored `~` tokens: overlapping notes are merged, no gaps
@@ -421,8 +434,14 @@ comes from the master tap before master gain/limiting, regardless of the lane
 filter. Display gain affects visualization only. Control curves show values
 sampled at scheduled note onsets, not continuously queried LFOs.
 
-Stage has a global pool limit of 1,024 note blocks, including source traces,
+Stage has a global pool limit of 192 note blocks, including source traces,
 and accepts at most 64 lanes. Retired geometry uses nonsingular transforms.
+At most 32 blocks appear in one row. Mesh allocation is spread across frames;
+three text meshes follow the camera-facing sides so all faces remain labelled
+as you orbit. The per-event floating name duplicates are replaced by rail
+labels. Source panes paint lexical chunks in one pass, update only changed
+active styles, and use a single transparent selection outline around the whole
+declaration. The HUD reports frame rate; Restart 3D reloads a failed worker.
 Nonfinite event values are discarded. GPU drawing pauses while a flat view is
 selected. Worker exceptions appear in the HUD; a missing renderer heartbeat
 switches to Piano roll after ten seconds (thirty seconds during startup).
@@ -438,6 +457,13 @@ with remote debugging on port 19222 and a live demo/hub. Set `CDP_PORT` and
 `VIEWER_URL` to override the defaults. It terminates that test tab's worker and
 writes ignored screenshots/results in `music-link`; never aim it at a tab you
 want to keep using.
+
+`node music-link/check-source-performance.mjs` creates its own CDP page on port
+19224 (override `CDP_PORT`) and uses a synthetic stream without a hub or audio
+device. It checks a full source pane, transparent whole-expression selection,
+changing labels, 512 events per update, and continued Stage heartbeats. It
+writes latency/frame-rate results and a screenshot under `music-link/target`.
+Use an isolated headless Chrome profile with WebGPU enabled for this test.
 
 Browser session discovery expires publishers after three seconds and selects a live
 instance when the selected Rustel process exits. This prevents the stale-stream

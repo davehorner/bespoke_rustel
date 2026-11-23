@@ -129,7 +129,7 @@ pub fn MusicCanvas(state: ViewerState) -> impl IntoView {
             }
             let lane = state.music_lane.get_untracked();
             let snapshot = snapshot.with_rests(state.music_rests.get_untracked()).visual_lanes(&state.music_expanded.get_untracked(), &lane);
-            let cycle = snapshot.cycle + age * snapshot.cps;
+            let cycle = snapshot.display_cycle(age);
             draw_events(
                 &context,
                 &snapshot,

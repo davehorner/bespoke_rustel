@@ -128,6 +128,21 @@ void RustelLink::Solo(const std::string& session, int64_t generation, const std:
    MusicConnection::Get().Send(juce::var(object));
 }
 
+void RustelLink::Transport(const std::string& session, int64_t generation, const std::string& action, double cycle)
+{
+   if (session.empty() || generation < 0) return;
+   auto* command = new juce::DynamicObject();
+   command->setProperty("request", juce::Uuid().toString());
+   command->setProperty("session", juce::String(session));
+   command->setProperty("generation", juce::int64(generation));
+   command->setProperty("lane", "");
+   auto* transport = new juce::DynamicObject();
+   transport->setProperty("action", juce::String(action));
+   if (action == "seek") transport->setProperty("cycle", cycle);
+   command->setProperty("transport", juce::var(transport));
+   MusicConnection::Get().Send(juce::var(command));
+}
+
 void RustelTranspose::CreateUIControls()
 {
    IDrawableModule::CreateUIControls();

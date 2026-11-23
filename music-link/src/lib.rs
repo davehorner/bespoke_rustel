@@ -65,7 +65,7 @@ mod named_part_tests {
 
     #[test]
     fn expanding_one_parent_scopes_shared_parts_and_never_duplicates_events() {
-        let part = NamedPart { name: "moon".into(), color: named_color("moon") };
+        let part = NamedPart { name: "moon".into(), color: named_color("moon"), helper: false };
         let lane = |id: &str| Lane { id: id.into(), source: "$: arrangement".into(), parts: vec![part.clone()], ..Default::default() };
         let event = |lane: &str, part: &str, id| Event { lane: lane.into(), part: part.into(), id,
             block_label: String::new(), rest: false,
@@ -151,6 +151,9 @@ pub struct Lane {
 pub struct NamedPart {
     pub name: String,
     pub color: [u8; 3],
+    /// A source definition with no independently emitted events.
+    #[serde(default)]
+    pub helper: bool,
 }
 
 impl Lane {
@@ -323,6 +326,8 @@ pub struct Binding {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(default)]
+    pub transport: Option<TransportState>,
+    #[serde(default)]
     pub bindings: Vec<Binding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lane_audio: Option<LaneAudioStream>,
@@ -345,6 +350,9 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub fn display_cycle(&self, age: f64) -> f64 {
+        self.cycle + if self.transport.as_ref().is_some_and(|t|t.paused) {0.0} else {age.max(0.0).min(3.0)*self.cps}
+    }
     pub fn inferred_rests(&self) -> Vec<Event> {
         let mut groups = std::collections::BTreeMap::<(&str, &str), Vec<&Event>>::new();
         for event in &self.events {
@@ -403,7 +411,7 @@ impl Snapshot {
                     if output.lanes.len() >= 256 { break; }
                     let id = virtual_id(&lane.id, &part.name);
                     destinations.insert((lane.id.clone(), part.name.clone()), id.clone());
-                    output.lanes.push(Lane { id, label: format!("  ↳ {}", part.name), source: part.name.clone(), ..Default::default() });
+                    output.lanes.push(Lane { id, label: format!("  ↳ {}{}", part.name, if part.helper {" (const)"} else {""}), source: part.name.clone(), ..Default::default() });
                 }
             }
         }
@@ -418,6 +426,8 @@ impl Snapshot {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Command {
+    #[serde(default)]
+    pub transport: Option<TransportCommand>,
     pub request: String,
     pub session: String,
     pub generation: u64,
@@ -434,7 +444,12 @@ impl Command {
         if self.session != snapshot.session || self.generation != snapshot.generation {
             return Err("stale session or score generation");
         }
-        if self.solo != Some(false) && !snapshot.lanes.iter().any(|lane| lane.id == self.lane) {
+        if let Some(transport) = &self.transport {
+            if snapshot.transport.is_none() {return Err("transport unavailable");}
+            if self.solo.is_some() || self.semitones != 0 {return Err("mixed transport and lane command");}
+            if let TransportCommand::Seek {cycle} = transport {if !cycle.is_finite() || !(0.0..=1_000_000.0).contains(cycle) {return Err("invalid seek cycle");}}
+        }
+        if self.transport.is_none() && self.solo != Some(false) && !snapshot.lanes.iter().any(|lane| lane.id == self.lane) {
             return Err("unknown lane");
         }
         if !(-48..=48).contains(&self.semitones) || self.request.len() > 128 {
@@ -443,6 +458,13 @@ impl Command {
         Ok(())
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransportState { pub paused: bool }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag="action", rename_all="snake_case")]
+pub enum TransportCommand { Play, Pause, Stop, Seek {cycle:f64} }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Response {
@@ -517,6 +539,7 @@ mod tests {
             ..Default::default()
         };
         let mut command = Command {
+            transport: None,
             request: "r".into(),
             session: "a".into(),
             generation: 3,

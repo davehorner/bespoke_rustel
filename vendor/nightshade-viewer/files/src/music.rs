@@ -42,6 +42,25 @@ pub fn solo(state: ViewerState, lane: String, enabled: bool) {
         state.music_control_status.set("Applying solo…".into());
     } else { state.music_control_status.set("Solo command could not reach Rustel".into()); }
 }
+
+pub fn transport(state: ViewerState, action: music_link::TransportCommand) {
+    let Some(snapshot)=state.music.get_untracked().filter(|s|s.transport.is_some()) else{return};
+    let request=format!("transport-{}-{}",js_sys::Date::now(),js_sys::Math::random());
+    let command=serde_json::json!({"request":request,"session":snapshot.session,"generation":snapshot.generation,"lane":"","transport":action});
+    let sent=CONNECTION.with(|slot|slot.borrow().as_ref().is_some_and(|c|
+        hearsay::encode_publish_text(music_link::COMMAND_TOPIC,&command.to_string(),false).is_ok_and(|frame|c.socket.send_with_u8_array(&frame).is_ok())));
+    if sent {
+        REQUESTS.with(|r|{let mut r=r.borrow_mut();if r.len()>=64{r.clear();}r.insert(request);});
+        state.music_control_status.set("Applying transport…".into());
+    } else {state.music_control_status.set("Transport could not reach Rustel".into());}
+}
+
+fn skip_cycles(state: ViewerState, delta:f64) {
+    if let Some(s)=state.music.get_untracked() {
+        let age=(js_sys::Date::now()-state.music_received.get_untracked())/1000.0;
+        transport(state,music_link::TransportCommand::Seek {cycle:(s.display_cycle(age)+delta).clamp(0.0,1_000_000.0)});
+    }
+}
 fn solo_target(state: ViewerState) -> String {
     let selected=state.music_source_focus.with(|focus|focus.as_ref().map(|f|f.0.clone()).unwrap_or_default());
     let filter=state.music_lane.get();
@@ -238,6 +257,7 @@ pub fn MusicPanel(
     bridge: StoredValue<Option<Bridge>, LocalStorage>,
 ) -> impl IntoView {
     let orbit = RwSignal::new(false);
+    let transport_ready=move ||state.music.with(|s|s.as_ref().is_some_and(|s|s.transport.is_some()));
 
     let configure = move || {
         bridge.with_value(|value| {
@@ -296,12 +316,24 @@ pub fn MusicPanel(
                     <div class="music-help" role="status">{move || state.render_error.get()}</div>
                     <div class="music-help">{move || state.music_status.get()}</div>
                     <div class="music-help">{move || state.music_control_status.get()}</div>
+                    <div class="music-help">{move || {
+                        let status=state.music.with(|s|s.as_ref().and_then(|s|s.transport.as_ref()).map(|t|if t.paused {"PAUSED"} else {"PLAYING"}).unwrap_or("TRANSPORT UNAVAILABLE"));
+                        format!("{status} · {:.0} FPS",state.fps.get())
+                    }}</div>
                     <select class="music-select" prop:value=move || state.music_session.get()
                         on:change=move |event| { if let Some(lane)=active_solo(state) { solo(state,lane,false); } state.music_session.set(event_target_value(&event)); state.music_lane.set(String::new()); state.music_source_focus.set(None); state.music_audio.set(None); }>
                         {move || state.music_sessions.get().into_iter().map(|id| view! { <option value=id.clone()>{id.clone()}</option> }).collect_view()}
                     </select>
                 </div>
                 <div class="music-controls">
+                    <Show when=move ||!state.render_error.get().is_empty()>
+                        <button on:click=move |_| {if let Some(w)=web_sys::window(){let _=w.location().reload();}}>"Restart 3D"</button>
+                    </Show>
+                    <button disabled=move ||!transport_ready() title="Rewind four cycles" on:click=move |_|skip_cycles(state,-4.0)>"⏪ −4"</button>
+                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Play)>"▶ Play"</button>
+                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Pause)>"Ⅱ Pause"</button>
+                    <button disabled=move ||!transport_ready() on:click=move |_|transport(state,music_link::TransportCommand::Stop)>"■ Stop"</button>
+                    <button disabled=move ||!transport_ready() title="Forward four cycles" on:click=move |_|skip_cycles(state,4.0)>"+4 ⏩"</button>
                     <label style="font:11px monospace;padding:9px" title="Show gaps between event gates in each part; no inferred markers at the edges of the available stream.">
                         <input type="checkbox" prop:checked=move || state.music_rests.get()
                             on:change=move |e| state.music_rests.set(event_target_checked(&e)) />

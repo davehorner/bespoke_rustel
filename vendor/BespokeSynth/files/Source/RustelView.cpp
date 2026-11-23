@@ -76,6 +76,11 @@ void RustelView::CreateUIControls()
    mPartsCheckbox = new Checkbox(this, "parts", 535, 30, &mShowParts);
    mRestsCheckbox = new Checkbox(this, "rests (~)", 535, 54, &mShowRests);
    mResetCamera = new ClickButton(this, "reset", 595, 30);
+   mBackButton = new ClickButton(this, "-4 cycles", 10, 50);
+   mPlayButton = new ClickButton(this, "play", 85, 50);
+   mPauseButton = new ClickButton(this, "pause", 130, 50);
+   mStopButton = new ClickButton(this, "stop", 185, 50);
+   mForwardButton = new ClickButton(this, "+4 cycles", 235, 50);
 
 }
 
@@ -160,6 +165,9 @@ void RustelView::Poll()
    mSoloLane = session["solo_lane"].toString().toStdString();
    mSolo = !mSoloLane.empty();
    PollAudio();
+   mTransportAvailable = session["transport"].isObject();
+   mPaused = mTransportAvailable && bool(session["transport"]["paused"]);
+   if (mPaused) mReceived = juce::Time::getMillisecondCounterHiRes();
    if (generation == mGeneration && cycle == mCycle)
       return;
    mGeneration = generation;
@@ -186,7 +194,7 @@ void RustelView::Poll()
          if (auto* parts = lane["parts"].getArray())
             for (const auto& part : *parts)
                if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
-                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])) });
+                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), bool(part["helper"]) });
       }
    bool changed = lanes.size() != mLanes.size();
    if (!changed)
@@ -429,6 +437,11 @@ void RustelView::DrawModule()
    mPartsCheckbox->Draw();
    mRestsCheckbox->Draw();
    mResetCamera->Draw();
+   for (auto* button : {mBackButton,mPlayButton,mPauseButton,mStopButton,mForwardButton})
+   {
+      button->SetShowing(mTransportAvailable);
+      button->Draw();
+   }
    const double now = juce::Time::getMillisecondCounterHiRes();
    const double dt = mLastFrame > 0 ? std::clamp((now - mLastFrame) / 1000.0, 0.0, 0.1) : 0;
    mLastFrame = now;
@@ -436,7 +449,7 @@ void RustelView::DrawModule()
       mOrbitPhase += dt * 0.15;
    const double age = std::max(0.0, (now - mReceived) / 1000.0);
    const bool live = mLive && age < 3.0;
-   const double cycle = mCycle + std::min(age, 3.0) * mCps;
+   const double cycle = mCycle + (mPaused ? 0 : std::min(age, 3.0) * mCps);
    std::vector<int> visible;
    for (int i = 0; i < int(mLanes.size()); ++i)
       if (mLaneId.empty() || mLanes[i].id == mLaneId)
@@ -460,7 +473,7 @@ void RustelView::DrawModule()
       mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
       if (open)
          for (const auto& part : lane.parts)
-            if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name, true });
+            if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name + (part.helper ? " (const)" : ""), true });
    }
    mShowParts = hasParts && allOpen;
    const int count = int(mRows.size());
@@ -814,6 +827,15 @@ void RustelView::CheckboxUpdated(Checkbox* checkbox, double)
 
 void RustelView::ButtonClicked(ClickButton* button, double time)
 {
+   if (mTransportAvailable && mLive)
+   {
+      const double cycle = mCycle + (mPaused ? 0 : std::max(0.0, (juce::Time::getMillisecondCounterHiRes()-mReceived)/1000.0)*mCps);
+      if (button == mPlayButton) {RustelLink::Transport(mSessionId,mGeneration,"play");return;}
+      if (button == mPauseButton) {RustelLink::Transport(mSessionId,mGeneration,"pause");return;}
+      if (button == mStopButton) {RustelLink::Transport(mSessionId,mGeneration,"stop");return;}
+      if (button == mBackButton || button == mForwardButton)
+      {RustelLink::Transport(mSessionId,mGeneration,"seek",std::clamp(cycle+(button==mBackButton ? -4 : 4),0.0,1000000.0));return;}
+   }
    if (button != mResetCamera)
       return;
    mPanX = mPanY = 0;

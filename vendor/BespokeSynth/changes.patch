@@ -412,10 +412,10 @@ index 0000000000000000000000000000000000000000..0ee089c27d58e7f6c20f7bc96f78c7f0
 +};
 diff --git a/Source/RustelLink.h b/Source/RustelLink.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..47a223e00b492c5c0d4997897579b94ed944ab97
+index 0000000000000000000000000000000000000000..5dfc541d21cbf6e61ec028b0aa57e057b9187a6b
 --- /dev/null
 +++ b/Source/RustelLink.h
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,13 @@
 +#pragma once
 +#include <juce_core/juce_core.h>
 +#include <string>
@@ -427,6 +427,7 @@ index 0000000000000000000000000000000000000000..47a223e00b492c5c0d4997897579b94e
 +   juce::var Analysis();
 +   std::string Status();
 +   void Solo(const std::string& session, int64_t generation, const std::string& lane, bool enabled);
++   void Transport(const std::string& session, int64_t generation, const std::string& action, double cycle = 0);
 +}
 diff --git a/Source/RustelNoteGlyph.h b/Source/RustelNoteGlyph.h
 new file mode 100644
@@ -458,10 +459,10 @@ index 0000000000000000000000000000000000000000..5c3a7105f53044f9cb24af2a2b47f4ab
 +}
 diff --git a/Source/RustelPattern.cpp b/Source/RustelPattern.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..289fb1122fb913376eb54ac59b7925e1445876a0
+index 0000000000000000000000000000000000000000..446544c55622e10ee8fdabd7e3c376453e032e01
 --- /dev/null
 +++ b/Source/RustelPattern.cpp
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,291 @@
 +#include "RustelPattern.h"
 +#include "OpenFrameworksPort.h"
 +#include "FileStream.h"
@@ -590,6 +591,21 @@ index 0000000000000000000000000000000000000000..289fb1122fb913376eb54ac59b7925e1
 +   object->setProperty("lane", juce::String(lane));
 +   object->setProperty("solo", enabled);
 +   MusicConnection::Get().Send(juce::var(object));
++}
++
++void RustelLink::Transport(const std::string& session, int64_t generation, const std::string& action, double cycle)
++{
++   if (session.empty() || generation < 0) return;
++   auto* command = new juce::DynamicObject();
++   command->setProperty("request", juce::Uuid().toString());
++   command->setProperty("session", juce::String(session));
++   command->setProperty("generation", juce::int64(generation));
++   command->setProperty("lane", "");
++   auto* transport = new juce::DynamicObject();
++   transport->setProperty("action", juce::String(action));
++   if (action == "seek") transport->setProperty("cycle", cycle);
++   command->setProperty("transport", juce::var(transport));
++   MusicConnection::Get().Send(juce::var(command));
 +}
 +
 +void RustelTranspose::CreateUIControls()
@@ -907,10 +923,10 @@ index 0000000000000000000000000000000000000000..6fb27e1234173c7a990c80bb7c320c17
 +}
 diff --git a/Source/RustelView.cpp b/Source/RustelView.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec46074eeab352
+index 0000000000000000000000000000000000000000..3ce900e0833b0f9a54bbbc2e39a7f12204436057
 --- /dev/null
 +++ b/Source/RustelView.cpp
-@@ -0,0 +1,1047 @@
+@@ -0,0 +1,1069 @@
 +#include "RustelView.h"
 +#include "RustelLink.h"
 +#include "OpenFrameworksPort.h"
@@ -989,6 +1005,11 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +   mPartsCheckbox = new Checkbox(this, "parts", 535, 30, &mShowParts);
 +   mRestsCheckbox = new Checkbox(this, "rests (~)", 535, 54, &mShowRests);
 +   mResetCamera = new ClickButton(this, "reset", 595, 30);
++   mBackButton = new ClickButton(this, "-4 cycles", 10, 50);
++   mPlayButton = new ClickButton(this, "play", 85, 50);
++   mPauseButton = new ClickButton(this, "pause", 130, 50);
++   mStopButton = new ClickButton(this, "stop", 185, 50);
++   mForwardButton = new ClickButton(this, "+4 cycles", 235, 50);
 +
 +}
 +
@@ -1073,6 +1094,9 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +   mSoloLane = session["solo_lane"].toString().toStdString();
 +   mSolo = !mSoloLane.empty();
 +   PollAudio();
++   mTransportAvailable = session["transport"].isObject();
++   mPaused = mTransportAvailable && bool(session["transport"]["paused"]);
++   if (mPaused) mReceived = juce::Time::getMillisecondCounterHiRes();
 +   if (generation == mGeneration && cycle == mCycle)
 +      return;
 +   mGeneration = generation;
@@ -1099,7 +1123,7 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +         if (auto* parts = lane["parts"].getArray())
 +            for (const auto& part : *parts)
 +               if (auto* rgb = part["color"].getArray(); rgb && rgb->size() == 3 && lanes.back().parts.size() < 64)
-+                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])) });
++                  lanes.back().parts.push_back({ part["name"].toString().toStdString(), ofColor(int((*rgb)[0]), int((*rgb)[1]), int((*rgb)[2])), bool(part["helper"]) });
 +      }
 +   bool changed = lanes.size() != mLanes.size();
 +   if (!changed)
@@ -1342,6 +1366,11 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +   mPartsCheckbox->Draw();
 +   mRestsCheckbox->Draw();
 +   mResetCamera->Draw();
++   for (auto* button : {mBackButton,mPlayButton,mPauseButton,mStopButton,mForwardButton})
++   {
++      button->SetShowing(mTransportAvailable);
++      button->Draw();
++   }
 +   const double now = juce::Time::getMillisecondCounterHiRes();
 +   const double dt = mLastFrame > 0 ? std::clamp((now - mLastFrame) / 1000.0, 0.0, 0.1) : 0;
 +   mLastFrame = now;
@@ -1349,7 +1378,7 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +      mOrbitPhase += dt * 0.15;
 +   const double age = std::max(0.0, (now - mReceived) / 1000.0);
 +   const bool live = mLive && age < 3.0;
-+   const double cycle = mCycle + std::min(age, 3.0) * mCps;
++   const double cycle = mCycle + (mPaused ? 0 : std::min(age, 3.0) * mCps);
 +   std::vector<int> visible;
 +   for (int i = 0; i < int(mLanes.size()); ++i)
 +      if (mLaneId.empty() || mLanes[i].id == mLaneId)
@@ -1373,7 +1402,7 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +      mRows.push_back({ index, "", (lane.parts.empty() ? "  " : open ? "[-] " : "[+] ") + lane.id + " / " + name, false });
 +      if (open)
 +         for (const auto& part : lane.parts)
-+            if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name, true });
++            if (mRows.size() < 320) mRows.push_back({ index, part.name, "  > " + part.name + (part.helper ? " (const)" : ""), true });
 +   }
 +   mShowParts = hasParts && allOpen;
 +   const int count = int(mRows.size());
@@ -1727,6 +1756,15 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +
 +void RustelView::ButtonClicked(ClickButton* button, double time)
 +{
++   if (mTransportAvailable && mLive)
++   {
++      const double cycle = mCycle + (mPaused ? 0 : std::max(0.0, (juce::Time::getMillisecondCounterHiRes()-mReceived)/1000.0)*mCps);
++      if (button == mPlayButton) {RustelLink::Transport(mSessionId,mGeneration,"play");return;}
++      if (button == mPauseButton) {RustelLink::Transport(mSessionId,mGeneration,"pause");return;}
++      if (button == mStopButton) {RustelLink::Transport(mSessionId,mGeneration,"stop");return;}
++      if (button == mBackButton || button == mForwardButton)
++      {RustelLink::Transport(mSessionId,mGeneration,"seek",std::clamp(cycle+(button==mBackButton ? -4 : 4),0.0,1000000.0));return;}
++   }
 +   if (button != mResetCamera)
 +      return;
 +   mPanX = mPanY = 0;
@@ -1960,10 +1998,10 @@ index 0000000000000000000000000000000000000000..5e945ed589c21c5ae11c01d777ec4607
 +}
 diff --git a/Source/RustelView.h b/Source/RustelView.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..f93f32b38ade83fb792defe89f07523dcba17752
+index 0000000000000000000000000000000000000000..4eb7611f3b13d9bf639be96b5eca22d94c0d9662
 --- /dev/null
 +++ b/Source/RustelView.h
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,126 @@
 +#pragma once
 +
 +#include "IDrawableModule.h"
@@ -1996,7 +2034,7 @@ index 0000000000000000000000000000000000000000..f93f32b38ade83fb792defe89f07523d
 +   int GetModuleSaveStateRev() const override { return 1; }
 +
 +private:
-+   struct NamedPart { std::string name; ofColor color; };
++   struct NamedPart { std::string name; ofColor color; bool helper{false}; };
 +   struct Lane
 +   {
 +      std::string id, label, source;
@@ -2070,6 +2108,12 @@ index 0000000000000000000000000000000000000000..f93f32b38ade83fb792defe89f07523d
 +   bool mShowRests{ false };
 +   bool mShowParts{ false };
 +   ClickButton* mResetCamera{ nullptr };
++   ClickButton* mPlayButton{ nullptr };
++   ClickButton* mPauseButton{ nullptr };
++   ClickButton* mStopButton{ nullptr };
++   ClickButton* mBackButton{ nullptr };
++   ClickButton* mForwardButton{ nullptr };
++   bool mPaused{false}, mTransportAvailable{false};
 +   bool mCameraDragging{ false }, mPanDragging{ false };
 +   int mDragButton{ 1 };
 +   float mDragX{ 0 }, mDragY{ 0 }, mPanX{ 0 }, mPanY{ 0 };

@@ -12,6 +12,8 @@ pub(super) struct MusicState {
     offsets: HashMap<String, i32>,
     lane_slots: std::collections::BTreeMap<String, u8>,
     last_publish: Instant,
+    paused_at: Option<f64>,
+    pending_transport: std::collections::VecDeque<music_link::Command>,
     #[cfg(feature = "device-audio")]
     audio: Option<MusicAudio>,
 }
@@ -38,6 +40,8 @@ impl Default for MusicState {
             offsets: HashMap::new(),
             lane_slots: Default::default(),
             last_publish: Instant::now(),
+            paused_at: None,
+            pending_transport: Default::default(),
             #[cfg(feature = "device-audio")]
             audio: None,
         }
@@ -95,6 +99,40 @@ fn transpose(value: &mut Value, semitones: i32) -> Option<f64> {
 }
 
 impl Session {
+    /// Apply a music-link transport gesture without reevaluating the score.
+    /// The live producer arms the returned generation change on the audio ring.
+    pub fn music_transport_at(&mut self, action: &music_link::TransportCommand, now: f64) -> Result<Option<(u64,u64)>, RuntimeError> {
+        use music_link::TransportCommand::*;
+        let current = self.music.paused_at.unwrap_or_else(||self.cycle_at_time(now));
+        let target = match action {Stop=>0.0, Seek{cycle}=>*cycle, _=>current};
+        if !now.is_finite() || now<0.0 || !target.is_finite() || !(0.0..=1_000_000.0).contains(&target) {
+            return Err(RuntimeError::Message("invalid transport position".into()));
+        }
+        let paused = match action {Play=>false, Pause|Stop=>true, Seek{..}=>self.music.paused_at.is_some()};
+        self.retime(now,self.cps(),target);
+        let generations=self.requery_active_at(now)?;
+        self.music.paused_at=paused.then_some(target);
+        self.music.snapshot.events.clear();
+        self.music.snapshot.rests.clear();
+        Ok(generations)
+    }
+
+    pub(crate) fn apply_pending_music_transport(&mut self, now:f64) -> Result<Option<(u64,u64)>,RuntimeError> {
+        let mut generations=None;
+        if let Some(command)=self.music.pending_transport.pop_front() {
+            let valid=command.validate(&self.music.snapshot);
+            let result=match valid {
+                Ok(())=>self.music_transport_at(command.transport.as_ref().expect("transport command"),now),
+                Err(message)=>Err(RuntimeError::Message(message.into())),
+            };
+            let accepted=result.is_ok();
+            let message=match result {Ok(value)=>{generations=value;"transport applied".to_owned()},Err(error)=>error.to_string()};
+            if let Some(link)=&self.music.link {link.respond(Response {request:command.request,accepted,message});}
+        }
+        if let Some(cycle)=self.music.paused_at {self.retime(now,self.cps(),cycle);}
+        Ok(generations)
+    }
+
     pub fn music_link_enabled(&self) -> bool {
         self.music.link.is_some()
     }
@@ -154,7 +192,7 @@ impl Session {
             return events;
         }
         let generation = self.generation();
-        let cycle = self.cycle_at_time(now);
+        let cycle = self.music.paused_at.unwrap_or_else(||self.cycle_at_time(now));
         let cps = self.cps();
         let mut lanes = self.lanes.music_lanes();
         let source = self.active_source().unwrap_or_default().to_owned();
@@ -180,7 +218,16 @@ impl Session {
         state.snapshot.generation = generation;
         state.snapshot.cycle = cycle;
         state.snapshot.cps = cps;
+        state.snapshot.transport=Some(music_link::TransportState {paused:state.paused_at.is_some()});
         state.snapshot.lanes = lanes;
+        for lane in &mut state.snapshot.lanes {
+            for binding in &state.snapshot.bindings {
+                if lane.parts.len()<64 && !lane.parts.iter().any(|p|p.name==binding.name) {
+                    lane.parts.push(music_link::NamedPart {name:binding.name.clone(),color:binding.color,helper:true});
+                }
+            }
+            lane.parts.sort_by_key(|p|state.snapshot.bindings.iter().position(|b|b.name==p.name).unwrap_or(usize::MAX));
+        }
         let exporting = cfg!(all(any(windows, target_os = "macos", target_os = "linux"), feature = "device-audio"))
             && std::env::var("RUSTEL_LANE_AUDIO").is_ok_and(|s| s == "1");
         if exporting {
@@ -195,6 +242,10 @@ impl Session {
         for command in link.commands() {
             // Other sessions share the topic and must not answer this request.
             if command.session != state.snapshot.session { continue; }
+            if command.transport.is_some() {
+                if state.pending_transport.len()<64 {state.pending_transport.push_back(command);}
+                continue;
+            }
             let result = command.validate(&state.snapshot);
             if result.is_ok() {
                 match command.solo {
@@ -226,6 +277,7 @@ impl Session {
             .snapshot
             .events
             .retain(|event| event.cycle + event.duration >= cycle - 1.0);
+        if state.paused_at.is_some() {events.clear();}
         for event in &mut events {
             if exporting {
                 let lane = event.telemetry.as_ref().and_then(|o| o.lane.as_deref());
@@ -245,8 +297,9 @@ impl Session {
             let offset = state.offsets.get(lane).copied().unwrap_or(0);
             if let Some(part) = observation.part.as_deref().filter(|name| !name.is_empty()) {
                 if let Some(parent) = state.snapshot.lanes.iter_mut().find(|l| l.id == lane) {
+                    if let Some(known)=parent.parts.iter_mut().find(|p|p.name==part) {known.helper=false;}
                     if parent.parts.len() < 64 && !parent.parts.iter().any(|p| p.name == part) {
-                        parent.parts.push(music_link::NamedPart { name: part.to_owned(), color: music_link::named_color(part) });
+                        parent.parts.push(music_link::NamedPart { name: part.to_owned(), color: music_link::named_color(part), helper:false });
                         parent.parts.sort_by_key(|p| state.snapshot.bindings.iter().position(|b| b.name == p.name).unwrap_or(usize::MAX));
                     }
                 }
@@ -296,7 +349,77 @@ impl Session {
             link.publish(state.snapshot.clone());
             state.last_publish = Instant::now();
         }
-        events
+        if state.paused_at.is_some() {Vec::new()} else {events}
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    #[cfg(feature="device-audio")]
+    #[test]
+    fn live_producer_publishes_transport_generations_and_resumes_audio() {
+        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
+            let mut session=Session::new().unwrap();
+            session.music.link=Some(Link::connect().unwrap());
+            session.set_continuity_margin(0.0);
+            session.evaluate("note(\"c4*8\").s(\"sine\")").unwrap();
+            let mut producer=crate::LiveFileProducer::unwatched(Duration::from_millis(2)).unwrap();
+            producer.step_unwatched_with_clock_and_cutover(&mut session,||0.0,48000,|_,_,_|{},|_|true).unwrap();
+            let enqueue=|s:&mut Session,action| {
+                s.music.pending_transport.push_back(music_link::Command {
+                    request:"test".into(),session:s.music.snapshot.session.clone(),generation:s.music.snapshot.generation,
+                    lane:String::new(),semitones:0,solo:None,transport:Some(action),
+                });
+            };
+            let mut cuts=Vec::new();
+            enqueue(&mut session,music_link::TransportCommand::Pause);
+            for time in [0.05,0.1,0.2] {
+                producer.step_unwatched_with_clock_and_cutover(&mut session,||time,48000,|a,b,_|cuts.push((a,b)),|_|true).unwrap();
+            }
+            assert!(session.music.paused_at.is_some());
+            assert!(!cuts.is_empty(),"pause must publish its generation to the device");
+            enqueue(&mut session,music_link::TransportCommand::Play);
+            let mut pushed=0;
+            for time in [1.0,1.1,1.2,1.3,1.4] {
+                producer.step_unwatched_with_clock_and_cutover(&mut session,||time,48000,|a,b,_|cuts.push((a,b)),|_|{pushed+=1;true}).unwrap();
+            }
+            assert!(session.music.paused_at.is_none());
+            assert!(pushed>0,"resume must submit new audio onsets");
+            assert!(cuts.len()>=2,"resume must publish its generation too");
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn pause_resume_seek_and_helpers_keep_the_active_score() {
+        std::thread::Builder::new().stack_size(crate::QUERY_WORKER_STACK_BYTES).spawn(|| {
+            use music_link::TransportCommand::*;
+            let mut session=Session::new().unwrap();
+            session.music.link=Some(Link::connect().unwrap());
+            let source="const bpm = 124; const harmony = note(\"c4\"); $: harmony.s(\"sine\")";
+            session.evaluate(source).unwrap();
+            session.schedule_at(0.0).unwrap();
+            let phase=session.cycle_at_time(0.25);
+            assert!(session.music_transport_at(&Pause,0.25).unwrap().is_some());
+            session.apply_pending_music_transport(2.0).unwrap();
+            assert!(session.schedule_at(2.0).unwrap().is_empty());
+            assert!((session.music.snapshot.cycle-phase).abs()<1e-7);
+            assert!(session.music.snapshot.transport.as_ref().unwrap().paused);
+            let parts=&session.music.snapshot.lanes[0].parts;
+            assert!(parts.iter().any(|p|p.name=="bpm"&&p.helper));
+            assert!(parts.iter().any(|p|p.name=="harmony"));
+            session.music_transport_at(&Seek{cycle:8.0},2.0).unwrap();
+            session.apply_pending_music_transport(3.0).unwrap();
+            assert!((session.cycle_at_time(3.0)-8.0).abs()<1e-7);
+            session.music_transport_at(&Play,3.0).unwrap();
+            assert!(session.music.paused_at.is_none());
+            assert!((session.cycle_at_time(4.0)-8.0-session.cps()).abs()<1e-7);
+            session.music_transport_at(&Seek{cycle:2.0},4.0).unwrap();
+            assert!((session.cycle_at_time(4.0)-2.0).abs()<1e-7);
+            session.music_transport_at(&Stop,4.0).unwrap();
+            assert_eq!(session.music.paused_at,Some(0.0));
+            assert_eq!(session.active_source(),Some(source));
+        }).unwrap().join().unwrap();
     }
 }
 

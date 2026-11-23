@@ -16,8 +16,7 @@ pub const PALETTE: [[f32; 3]; 8] = [
 #[derive(Default)]
 struct LaneScene {
     blocks: Vec<Entity>,
-    labels: Vec<(Entity, String)>,
-    notes: Vec<([Entity; 6], String)>,
+    notes: Vec<([Entity; 3], String)>,
     colors: Vec<[f32; 3]>,
     rail: Option<Entity>,
     lamp: Option<Entity>,
@@ -79,6 +78,7 @@ fn pose(world: &mut World, entity: Entity, position: Vec3, scale: Vec3) {
     };
     let scale = if hidden { Vec3::repeat(0.0001) } else { scale };
     if let Some(transform) = world.core.get_local_transform_mut(entity) {
+        if transform.translation == position && transform.scale == scale { return; }
         transform.translation = position;
         transform.scale = scale;
     }
@@ -326,7 +326,7 @@ impl MusicScene {
             return;
         };
         let age = ((js_sys::Date::now() - self.received) / 1000.0).max(0.0);
-        let cycle = snapshot.cycle + age.min(3.0) * snapshot.cps;
+        let cycle = snapshot.display_cycle(age);
         let visible: Vec<_> = snapshot
             .lanes
             .iter()
@@ -354,7 +354,8 @@ impl MusicScene {
                 }
             }
         }
-        while self.lanes.len() < count {
+        let lane_allocation_limit = self.lanes.len() + 8;
+        while self.lanes.len() < count && self.lanes.len() < lane_allocation_limit {
             let i = self.lanes.len();
             let color = PALETTE[i % PALETTE.len()];
             let rail = spawn_cube_at(world, Vec3::zeros());
@@ -385,6 +386,11 @@ impl MusicScene {
             });
         }
         let mut total_used = 0;
+        let mut new_blocks = 0;
+        let mut events_by_lane = std::collections::HashMap::<&str, Vec<_>>::new();
+        for event in snapshot.events.iter().filter(|e|e.cycle+e.duration>cycle-1.5&&e.cycle<cycle+2.0) {
+            events_by_lane.entry(event.lane.as_str()).or_default().push(event);
+        }
         let mut total_allocated: usize = self.lanes.iter().map(|l| l.blocks.len()).sum();
         for (index, lane) in self.lanes.iter_mut().enumerate() {
             let z = index as f32 * 1.7;
@@ -410,9 +416,7 @@ impl MusicScene {
             let mut pulse = 0.0_f32;
             if index < count && age < 3.0 {
                 let id = &visible[index].id;
-                for event in snapshot.events.iter().filter(|e| {
-                    &e.lane == id && e.cycle + e.duration > cycle - 1.5 && e.cycle < cycle + 2.0
-                }) {
+                for &event in events_by_lane.get(id.as_str()).into_iter().flatten() {
                     let elapsed = ((cycle - event.cycle) / snapshot.cps.max(0.001)) as f32;
                     let hit = if elapsed >= 0.0 && !event.rest {
                         (-elapsed * 7.0).exp()
@@ -424,13 +428,14 @@ impl MusicScene {
                         if original && !self.ghosts {
                             continue;
                         }
-                        if used >= 128 || total_used >= 1024 {
+                        if used >= 32 || total_used >= 192 {
                             break;
                         }
                         if lane.blocks.len() <= used {
-                            if total_allocated >= 1024 {
+                            if total_allocated >= 192 || new_blocks >= 8 {
                                 break;
                             }
+                            new_blocks += 1;
                             total_allocated += 1;
                             let entity = spawn_cube_at(world, Vec3::zeros());
                             // Fixed per-lane pools keep colors stable as events retire.
@@ -443,12 +448,6 @@ impl MusicScene {
                             );
                             lane.blocks.push(entity);
                             lane.colors.push(PALETTE[index % 8]);
-                            let label = spawn_3d_billboard_text_with_properties(world, "", Vec3::zeros(), TextProperties {
-                                font_size: 16.0, outline_width: 0.12,
-                                alignment: TextAlignment::Center,
-                                ..Default::default()
-                            });
-                            lane.labels.push((label, String::new()));
                             let faces = std::array::from_fn(|_| surface_label(world, true));
                             lane.notes.push((faces, String::new()));
                         }
@@ -487,31 +486,27 @@ impl MusicScene {
                                 if original { 0.055 } else { 0.22 + hit * 0.15 },
                             ),
                         );
-                        let (label, name) = &mut lane.labels[used];
-                        let display = if original { String::new() } else { event.part.chars().take(64).collect::<String>() };
-                        if *name != display {
-                            if let Some(text) = world.core.get_text(*label) {
-                                world.resources.text.cache.set_text(text.text_index, &display);
-                            }
-                            if let Some(text) = world.core.get_text_mut(*label) { text.dirty = true; }
-                            *name = display;
-                        }
-                        label_pose(world, &label_camera, *label, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5, y + lift + 0.35, z + 0.15), !name.is_empty(), 12.0);
                         let (notes, previous) = &mut lane.notes[used];
                         let glyph = event.face_label();
                         let changed = *previous != glyph;
                         let faces = crate::music_text::block_faces([length, thickness, 0.22 + hit * 0.15]);
-                        for (note, face) in notes.iter().zip(faces) {
-                            if changed { let mut old = previous.clone(); set_label(world, *note, &mut old, &glyph); }
-                            let bounds = world.core.get_text(*note).filter(|t| !t.dirty)
-                                .and_then(|t| t.cached_mesh.as_ref()).map(|mesh| mesh.bounds)
-                                .unwrap_or_else(|| Vec2::new(glyph.len() as f32 * 0.1, 0.16));
-                            let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
-                            let facing=label_camera.as_ref().is_some_and(|camera| (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0);
-                            let scale = if original || !facing { 0.0 } else { crate::music_text::block_text_scale(face.size[0], face.size[1], bounds.x, bounds.y) };
-                            if let Some(t) = world.core.get_local_transform_mut(*note) { t.rotation = crate::systems::selection::euler_to_quat(face.rotation); }
-                            pose(world, *note, Vec3::new((event.cycle-cycle) as f32 * 5.0 + length * 0.5 + face.offset[0],
-                                y + lift + face.offset[1], z + 0.15 + face.offset[2]), Vec3::repeat(scale));
+                        // A box has at most three camera-facing sides. Reuse three
+                        // meshes as the camera rotates instead of six per event.
+                        let center=Vec3::new((event.cycle-cycle) as f32*5.0+length*0.5,y+lift,z+0.15);
+                        let mut facing=faces.into_iter().filter(|face| label_camera.as_ref().is_some_and(|camera|
+                            (camera.position-center).dot(&Vec3::from_column_slice(&face.offset))>0.0));
+                        for note in notes.iter() {
+                            if changed {let mut old=previous.clone();set_label(world,*note,&mut old,&glyph);}
+                            let Some(face)=facing.next() else {pose(world,*note,Vec3::zeros(),Vec3::zeros());continue};
+                            let bounds=world.core.get_text(*note).filter(|t|!t.dirty)
+                                .and_then(|t|t.cached_mesh.as_ref()).map(|m|m.bounds)
+                                .unwrap_or_else(||Vec2::new(glyph.len() as f32*0.1,0.16));
+                            let scale=if original {0.0} else {crate::music_text::block_text_scale(face.size[0],face.size[1],bounds.x,bounds.y)};
+                            let rotation=crate::systems::selection::euler_to_quat(face.rotation);
+                            if let Some(t)=world.core.get_local_transform_mut(*note) {
+                                if t.rotation!=rotation {t.rotation=rotation;mark_local_transform_dirty(world,*note);}
+                            }
+                            pose(world,*note,center+Vec3::from_column_slice(&face.offset),Vec3::repeat(scale));
                         }
                         *previous = glyph;
                         used += 1;
@@ -522,7 +517,6 @@ impl MusicScene {
             for entity in &lane.blocks[used..] {
                 pose(world, *entity, Vec3::zeros(), Vec3::zeros());
             }
-            for (entity, _) in &lane.labels[used..] { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); }
             for (entities, _) in &lane.notes[used..] { for entity in entities { pose(world, *entity, Vec3::zeros(), Vec3::zeros()); } }
             if let Some((entity, text)) = &mut lane.heading {
                 let label = visible.get(index).map_or("", |l| l.label.as_str());
