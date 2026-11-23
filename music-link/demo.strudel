@@ -115,7 +115,7 @@ const pulse = stack(
 
 const keys = harmony
   .voicing()
-  .s("gm_electric_piano_1")
+  .s("gm_epiano1")
   .struct("x ~ ~ ~ x ~ ~ ~")
   .gain(0.28)
   .room(0.5)

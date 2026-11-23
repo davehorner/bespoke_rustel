@@ -235,14 +235,23 @@ try {
         try {
             $arguments = @('play', $Score, '--watch', '--no-update-check', '--no-input')
             if ($Silent) { $arguments += @('--output', 'silent') }
-            $null = Ensure-Process 'rustel' $rustelExe $arguments @('rustel') @($rustelExe)
+            $player = Ensure-Process 'rustel' $rustelExe $arguments @('rustel') @($rustelExe)
         } finally {
             $env:RUSTEL_MUSIC_LINK = $previousLink; $env:RUSTEL_LANE_AUDIO = $previousLaneAudio
             $env:MUSIC_LINK_ROOT = $previousMusicRoot; $env:RUSTEL_SESSION_FILE = $previousSessionFile; $env:RUSTEL_DEMO_NAME = $previousDemoName
         }
-        Wait-Until { (Get-HubState).sessions.Count -gt 0 } 20 "Rustel is not publishing lanes. If reusing Studio, evaluate its score; otherwise inspect $logDirectory/rustel-error.log (audio device or score error)."
+        $sessionPattern = "rustel-$($player.Id)-*"
+        $lanesReady = {
+            if ($player.HasExited) { throw "Rustel exited before publishing lanes. See $logDirectory/rustel-error.log." }
+            @((Get-HubState).sessions | Where-Object { $_.session -like $sessionPattern -and $_.lanes.Count -gt 0 }).Count -gt 0
+        }
+        if (!(& $lanesReady)) {
+            # Rustel can spend 60 seconds preloading samples before its first publication.
+            Write-Host 'Waiting for Rustel lanes. Cold sample downloads can delay startup.'
+            Wait-Until $lanesReady 90 "Rustel did not publish lanes within 90 seconds. If reusing Studio, evaluate its score. See $logDirectory/rustel-error.log."
+        }
         if ($LaneAudio) {
-            Wait-Until { @((Get-HubState).sessions | Where-Object { $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Rebuild the updated native audio transport if this persists."
+            Wait-Until { @((Get-HubState).sessions | Where-Object { $_.session -like $sessionPattern -and $null -ne $_.lane_audio }).Count -gt 0 } 5 "No lane audio export. An existing Rustel process may have been started without RUSTEL_LANE_AUDIO=1. Stop that process and launch again with -LaneAudio. Rebuild the updated native audio transport if this persists."
         }
 
         $preferences = Join-Path $PSScriptRoot 'native-view-prefs.json'

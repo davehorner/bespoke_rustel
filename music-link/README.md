@@ -226,15 +226,17 @@ Native builds use `BespokeSynth/ignore/music-build-posix`, separate from the
 Windows Visual Studio build. The launcher finds either the Linux executable or
 the macOS `.app` executable. `--build` explicitly rebuilds components; ordinary
 startup builds only missing outputs. Close the affected apps before rebuilding.
+On macOS, the launcher uses Rustel's optimized `local` Cargo profile for
+real-time playback. The first launch with this profile builds Rustel once.
 `--no-bespoke --web` runs just Rustel, the hub and Nightshade. `--silent` renders
 Rustel on its silent device for hardware-free observation; it produces no sound.
 
 The launcher reuses the same workspace's existing processes and preserves their
 settings and score. Runtime state is in `music-link/launcher-posix.json`; logs
 are under `music-link/logs`. A file lock prevents concurrent launchers. `--stop`
-checks both process start identity and executable, stops only launcher-owned
-background processes, and **leaves Bespoke open** so you can save and quit it
-normally. Reused external processes are never stopped.
+checks both process start identity and executable and stops launcher-owned
+processes. On macOS it requests a normal Bespoke quit. On Linux, close the
+Bespoke window to quit. Reused external processes are left running.
 
 Lane discovery, transpose/Solo, native visualization, Nightshade and per-lane
 `rustelaudio` stereo PCM use the same node interface on Windows, macOS and Linux.
