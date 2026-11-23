@@ -61,6 +61,9 @@ def upgrade_files(root, project):
 
 
 def apply_workspace(root=ROOT, initialize=False, check_only=False, upgrade=False, ensure=False):
+    # checked_path returns resolved targets. Keep their root in the same form,
+    # including macOS /var aliases and Windows short-name temp directories.
+    root = Path(root).resolve()
     manifest = json.loads((root / "vendor/manifest.json").read_text(encoding="utf-8"))
     if manifest["version"] != 1:
         raise RuntimeError("Unsupported vendor manifest version")

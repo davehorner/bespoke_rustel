@@ -119,6 +119,30 @@ class SetupTests(unittest.TestCase):
         self.apply(upgrade=True)
         self.assertEqual((self.root / "one/code.txt").read_bytes(), b"updated integration\n")
 
+    def test_upgrade_accepts_a_relative_workspace_root(self):
+        self.prepare_old_snapshot_upgrade()
+        previous = Path.cwd()
+        output = io.StringIO()
+        try:
+            os.chdir(self.root.parent)
+            with contextlib.redirect_stdout(output):
+                setup.apply_workspace(root=Path(self.root.name), upgrade=True)
+        finally:
+            os.chdir(previous)
+        for name in ("one", "two"):
+            self.assertEqual((self.root / name / "code.txt").read_bytes(), b"updated integration\n")
+        self.assertIn("Updated vendored source:", output.getvalue())
+
+    @unittest.skipIf(os.name == "nt", "POSIX workspace symlink; relative-root regression also runs on Windows")
+    def test_upgrade_accepts_a_symlinked_workspace_root(self):
+        self.prepare_old_snapshot_upgrade()
+        alias = self.root / "workspace alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            setup.apply_workspace(root=alias, upgrade=True)
+        for name in ("one", "two"):
+            self.assertEqual((self.root / name / "code.txt").read_bytes(), b"updated integration\n")
+
     def test_upgrade_preserves_unknown_edits_before_any_write(self):
         self.prepare_old_snapshot_upgrade()
         (self.root / "two/code.txt").write_bytes(b"my custom source\n")
