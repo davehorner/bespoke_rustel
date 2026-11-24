@@ -27,17 +27,17 @@ jobs:
       contents: read
       pages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: true
       - name: Apply integration source
         run: python3 vendor/setup.py
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6.0.0
         id: pages
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -55,7 +55,7 @@ jobs:
         run: npm ci --prefix nightshade-viewer
       - name: Build project website
         run: python3 music-link/build_pages.py --public-url '${{ steps.pages.outputs.base_path }}/'
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: music-link/target/pages
 
@@ -69,5 +69,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5.0.1
         id: deployment
