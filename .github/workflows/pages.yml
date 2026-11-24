@@ -47,10 +47,12 @@ jobs:
           workspaces: nightshade-viewer
           cache-on-failure: true
       - name: Install web build tools
-        run: |
-          cargo install wasm-bindgen-cli --version 0.2.115 --locked
-          cargo install trunk --version 0.21.14 --locked
-          npm ci --prefix nightshade-viewer
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.115,trunk@0.21.14
+          fallback: none
+      - name: Install stylesheets
+        run: npm ci --prefix nightshade-viewer
       - name: Build project website
         run: python3 music-link/build_pages.py --public-url '${{ steps.pages.outputs.base_path }}/'
       - uses: actions/upload-pages-artifact@v4

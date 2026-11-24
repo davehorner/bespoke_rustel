@@ -12,7 +12,9 @@ architecture, reproduction steps and discussion/PR drafts.
 
 ## Hosted viewer
 
-[Open bespoke_rustel on GitHub Pages](https://davehorner.github.io/bespoke_rustel/).
+[Open bespoke_rustel on GitHub Pages](https://dave.thehorners.com/bespoke_rustel/).
+GitHub uses the account's existing custom domain; the project path is
+`/bespoke_rustel/`, with HTTPS enforced for WebGPU.
 The site defaults to music mode and updates automatically after relevant pushes
 to `main` through the **Publish Nightshade viewer** workflow. The workflow applies
 the tracked vendor overlays, compiles the WebAssembly worker and page in release
