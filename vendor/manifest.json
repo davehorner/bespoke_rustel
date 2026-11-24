@@ -253,7 +253,7 @@
         },
         {
           "path": "src/music.rs",
-          "sha256": "a2285c3871acc4630853ee395b851c6294ce4f9b5fccd86a1011edd94b59fe15"
+          "sha256": "bf18d64edbc9afd0439733d5091e4f5a9ab0faf5830f5e597099cecb889797e4"
         },
         {
           "path": "src/music_canvas.rs",
@@ -288,8 +288,8 @@
           "sha256": "c4868e3c5d5b842af8f0de55196ee5503978b1871f1bc9d5e5554ef420af4aa0"
         }
       ],
-      "patch_sha256": "f6f320b6445f43f8701bce85c28cfa82d6866a4fd307cd21c30c4df3ebba6669",
-      "result_tree": "9e5f565b0377fcda09127458c96c229c20df7438"
+      "patch_sha256": "a69a225425ec958fbbeaf71027d1e4f05d7ade99a70dc70973fa5844291f20ad",
+      "result_tree": "8c82c16b0d2e3958a85fa83d8c7cb00d73e5bd31"
     },
     {
       "name": "hearsay",

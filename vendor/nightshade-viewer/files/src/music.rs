@@ -129,8 +129,20 @@ fn focus_source(state: ViewerState, lane: &str, target: String) {
     if follow {solo(state,lane.to_owned(),true);}
 }
 
+fn hub_url() -> String {
+    web_sys::window().and_then(|w| w.location().search().ok())
+        .and_then(|query| query.trim_start_matches('?').split('&')
+            .find_map(|p|p.strip_prefix("hub=")).map(str::to_owned))
+        .and_then(|encoded|js_sys::decode_uri_component(&encoded).ok())
+        .map(String::from)
+        .filter(|url|url.starts_with("ws://")||url.starts_with("wss://"))
+        .unwrap_or_else(||"ws://127.0.0.1:9613".into())
+}
+
 pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
-    let Ok(socket) = WebSocket::new("ws://127.0.0.1:9613") else {
+    let url = hub_url();
+    let Ok(socket) = WebSocket::new(&url) else {
+        state.music_status.set("Connection blocked. Start Music locally, or use a browser-compatible wss:// hub via ?music=1&hub=…".into());
         return;
     };
     socket.set_binary_type(BinaryType::Arraybuffer);
@@ -255,7 +267,7 @@ pub fn connect(bridge: Option<Bridge>, state: ViewerState) {
     let onclose = Closure::<dyn FnMut()>::new(move || {
         state
             .music_status
-            .set("Music hub disconnected · reconnecting".into());
+            .set("Waiting for local Music hub · run start_music and allow local-network access if prompted · reconnecting".into());
         state.music.set(None);
         state.music_audio.set(None);
         state.music_session.set(String::new());
@@ -346,6 +358,10 @@ pub fn MusicPanel(
                     <div class="music-title">"bespoke_rustel"</div>
                     <div class="music-help" role="status">{move || state.render_error.get()}</div>
                     <div class="music-help">{move || state.music_status.get()}</div>
+                    <Show when=move ||state.music.with(|s|s.is_none())>
+                        <div class="music-help">"The website renders your local session; Rustel and Bespoke run on your computer."</div>
+                        <a class="music-help" style="pointer-events:auto" href="http://127.0.0.1:18765/?music=1">"Open local viewer"</a>
+                    </Show>
                     <div class="music-help">{move || state.music_control_status.get()}</div>
                     <div class="music-help" title=move ||state.music.with(|s|s.as_ref().map(|s|s.session_file.clone()).unwrap_or_default())>
                         {move ||state.music.with(|s|s.as_ref().map(|s|s.session_file.rsplit(['/', '\\']).next().unwrap_or_default().to_owned()).unwrap_or_default())}

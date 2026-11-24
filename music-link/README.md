@@ -10,6 +10,34 @@ demo selection and tempo edits reload the score in Rustel.
 See [the upstream contribution package](contribution/README.md) for screenshots,
 architecture, reproduction steps and discussion/PR drafts.
 
+## Hosted viewer
+
+[Open bespoke_rustel on GitHub Pages](https://davehorner.github.io/bespoke_rustel/).
+The site defaults to music mode and updates automatically after relevant pushes
+to `main` through the **Publish Nightshade viewer** workflow. The workflow applies
+the tracked vendor overlays, compiles the WebAssembly worker and page in release
+mode, and deploys only the static output. No binaries are committed to Git.
+
+Run `start_music` locally, then open the hosted page. Rustel, Bespoke, audio and
+the hub remain on your computer. The page connects to `ws://127.0.0.1:9613`;
+allow local-network access if prompted by the browser. Browser support varies:
+if that connection is blocked, use the **Open local viewer** link or the URL
+printed by the launcher. A separately configured secure hub can be selected
+with `?music=1&hub=wss%3A%2F%2Fyour-host%2Fmusic`. GitHub Pages itself does not
+run the hub or provide an audio engine.
+
+For a local Pages build after setup, install Trunk 0.21.14, wasm-bindgen-cli
+0.2.115, the `wasm32-unknown-unknown` Rust target, and run `npm ci` inside
+`nightshade-viewer`. Then run:
+
+```sh
+python3 music-link/build_pages.py --public-url /bespoke_rustel/
+```
+
+The output is `music-link/target/pages`, separate from the local viewer's `dist`.
+`--dev` performs a faster build for URL
+prefix checks. Use `/` as the public URL for a custom domain hosted at its root.
+
 ## Start
 
 Double-click `start_music.cmd` at the workspace root, or run:

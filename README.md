@@ -3,6 +3,13 @@
 Live Rustel pattern observation, controls, per-lane stereo audio and visualizations
 in Bespoke Synth and Nightshade. See [the integration guide](music-link/README.md).
 
+[Open the hosted Nightshade viewer](https://davehorner.github.io/bespoke_rustel/).
+GitHub Pages publishes the viewer automatically from `main`. Run `start_music`
+on your computer for live patterns and audio; the hosted page connects to your
+local music hub. Allow local-network access if your browser prompts. The local
+viewer printed by the launcher remains available if your browser blocks that
+connection.
+
 ## Clone and prepare
 
 ```sh
